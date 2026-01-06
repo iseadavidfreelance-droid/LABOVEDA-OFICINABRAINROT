@@ -1,9 +1,8 @@
-
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { PinterestNode, BusinessAsset, AssetStatus, RarityTier } from '../../types/database';
 import { mockService } from '../../lib/supabase';
-import { Layers, Database, Trash2, GripVertical, CheckCircle, Flame, ExternalLink, Plus, X, Server } from 'lucide-react';
+import { Layers, Database, Trash2, Plus, X, Server, CheckCircle, ExternalLink } from 'lucide-react';
 import RarityBadge from '../ui/RarityBadge';
 import TechInput from '../ui/TechInput';
 import TechButton from '../ui/TechButton';
@@ -42,7 +41,6 @@ const VoidTerminal: React.FC = () => {
   // --- LIFECYCLE ---
   useEffect(() => {
     loadData();
-    // Replaced local log with Global Log
     addLog("VOID PROTOCOL INITIATED...", "info");
   }, []);
 
@@ -71,7 +69,8 @@ const VoidTerminal: React.FC = () => {
       const end = Math.max(indexA, indexB);
       
       for (let i = start; i <= end; i++) {
-        newSelection.add(nodes[i].id);
+        const node = nodes[i];
+        if (node && node.id) newSelection.add(node.id);
       }
     } else {
       // Toggle
@@ -236,61 +235,61 @@ const VoidTerminal: React.FC = () => {
            <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
                  <AnimatePresence>
-  {nodes
-    .filter(node => node.id && node.id !== "") // <--- FILTRO DE SEGURIDAD
-    .map((node) => {
-      const isSelected = selectedIds.has(node.id);
-      return (
-        <MotionDiv
-          key={node.id}
-                         layout
-                         initial={{ opacity: 0, scale: 0.8 }}
-                         animate={{ opacity: 1, scale: 1 }}
-                         exit={{ opacity: 0, scale: 0, transition: { duration: 0.2 } }}
-                         draggable
-                         onDragStart={(e: React.DragEvent) => handleDragStart(e, node.id)}
-                         onDragEnd={handleDragEnd}
-                         onClick={(e: React.MouseEvent) => handleNodeClick(node.id, e.shiftKey)}
-                         className={cn(
-                           "relative group cursor-move select-none border transition-all duration-200 aspect-[3/4] flex flex-col",
-                           isSelected 
-                             ? "border-tech-green bg-tech-green/10 shadow-[0_0_10px_rgba(0,255,65,0.2)]" 
-                             : "border-void-border bg-black hover:border-gray-500"
-                         )}
-                       >
-                          {/* Image Preview with Fallback */}
-                          <div className="flex-1 overflow-hidden relative">
-                             <ImageWithFallback 
-                                src={node.image_url} 
-                                alt={node.pin_id} 
-                                className="w-full h-full object-cover"
-                             />
-                             
-                             <div className="absolute top-1 right-1 z-20">
-                                {isSelected && <CheckCircle className="w-4 h-4 text-tech-green bg-black rounded-full" />}
-                             </div>
-                             {/* External Link */}
-                             <a 
-                                href={node.url} 
-                                target="_blank"
-                                rel="noreferrer"
-                                onClick={(e) => e.stopPropagation()}
-                                className="absolute bottom-1 right-1 p-1 bg-black/50 hover:bg-tech-green hover:text-black rounded text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity z-20"
-                             >
-                                <ExternalLink className="w-3 h-3" />
-                             </a>
-                          </div>
-                          
-                          {/* Metadata */}
-                          <div className="p-2 border-t border-void-border bg-black/80">
-                             <div className="text-[9px] text-gray-500 font-mono truncate">{node.pin_id}</div>
-                             <div className="flex justify-between items-center mt-1">
-                                <span className="text-[10px] text-gray-300 font-bold">{node.impressions < 1000 ? node.impressions : (node.impressions/1000).toFixed(1) + 'k'} IMP</span>
-                             </div>
-                          </div>
-                       </MotionDiv>
-                     );
-                   })}
+                  {nodes
+                    .filter(node => node.id && node.id !== "") // <--- FILTRO DE SEGURIDAD
+                    .map((node) => {
+                      const isSelected = selectedIds.has(node.id);
+                      return (
+                        <MotionDiv
+                          key={node.id}
+                          layout
+                          initial={{ opacity: 0, scale: 0.8 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          exit={{ opacity: 0, scale: 0, transition: { duration: 0.2 } }}
+                          draggable
+                          onDragStart={(e: React.DragEvent) => handleDragStart(e, node.id)}
+                          onDragEnd={handleDragEnd}
+                          onClick={(e: React.MouseEvent) => handleNodeClick(node.id, e.shiftKey)}
+                          className={cn(
+                            "relative group cursor-move select-none border transition-all duration-200 aspect-[3/4] flex flex-col",
+                            isSelected 
+                              ? "border-tech-green bg-tech-green/10 shadow-[0_0_10px_rgba(0,255,65,0.2)]" 
+                              : "border-void-border bg-black hover:border-gray-500"
+                          )}
+                        >
+                           {/* Image Preview with Fallback */}
+                           <div className="flex-1 overflow-hidden relative">
+                              <ImageWithFallback 
+                                 src={node.image_url} 
+                                 alt={node.pin_id} 
+                                 className="w-full h-full object-cover"
+                              />
+                              
+                              <div className="absolute top-1 right-1 z-20">
+                                 {isSelected && <CheckCircle className="w-4 h-4 text-tech-green bg-black rounded-full" />}
+                              </div>
+                              {/* External Link */}
+                              <a 
+                                 href={node.url} 
+                                 target="_blank"
+                                 rel="noreferrer"
+                                 onClick={(e) => e.stopPropagation()}
+                                 className="absolute bottom-1 right-1 p-1 bg-black/50 hover:bg-tech-green hover:text-black rounded text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity z-20"
+                              >
+                                 <ExternalLink className="w-3 h-3" />
+                              </a>
+                           </div>
+                           
+                           {/* Metadata */}
+                           <div className="p-2 border-t border-void-border bg-black/80">
+                              <div className="text-[9px] text-gray-500 font-mono truncate">{node.pin_id}</div>
+                              <div className="flex justify-between items-center mt-1">
+                                 <span className="text-[10px] text-gray-300 font-bold">{node.impressions < 1000 ? node.impressions : (node.impressions/1000).toFixed(1) + 'k'} IMP</span>
+                              </div>
+                           </div>
+                        </MotionDiv>
+                      );
+                    })}
                  </AnimatePresence>
                  {nodes.length === 0 && (
                     <div className="col-span-full flex flex-col items-center justify-center h-64 text-gray-600 font-mono opacity-50">

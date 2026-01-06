@@ -1,10 +1,13 @@
-
 import type { Config } from 'tailwindcss';
 
 const config: Config = {
   content: [
-    './**/*.{js,ts,jsx,tsx}',
     './index.html',
+    './*.{js,ts,jsx,tsx}',                // Busca en la raíz (App.tsx, index.tsx)
+    './components/**/*.{js,ts,jsx,tsx}', // Busca en components
+    './context/**/*.{js,ts,jsx,tsx}',    // Busca en context
+    './lib/**/*.{js,ts,jsx,tsx}',        // Busca en lib
+    './types/**/*.{js,ts,jsx,tsx}'       // Busca en types
   ],
   theme: {
     extend: {
@@ -15,11 +18,11 @@ const config: Config = {
         'tech-green': '#00FF41',
         
         // Rarity Tiers
-        'rank-dust': '#4A4A4A', // Gris oscuro / Visual approx for opacity representation
-        'rank-common': '#FFFFFF', // Blanco Mate
-        'rank-uncommon': '#00D1FF', // Cian Neón
-        'rank-rare': '#BC13FE', // Violeta Eléctrico
-        'rank-legendary': '#FFD700', // Oro Líquido
+        'rank-dust': '#4A4A4A', 
+        'rank-common': '#FFFFFF', 
+        'rank-uncommon': '#00D1FF', 
+        'rank-rare': '#BC13FE', 
+        'rank-legendary': '#FFD700', 
       },
       fontFamily: {
         sans: ['Rajdhani', 'sans-serif'],
