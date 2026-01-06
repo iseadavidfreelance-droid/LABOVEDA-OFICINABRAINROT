@@ -1,21 +1,25 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabase';
 import { Database } from '../../types/database';
-import { Search, Filter, Box } from 'lucide-react';
+import { Search, Filter, Box, Plus, Hexagon } from 'lucide-react';
 import { AssetDetailView } from './AssetDetailView';
-import RarityBadge from '../ui/RarityBadge'; // [CORREGIDO: Sin llaves]
-import AssetCreationWizard from './AssetCreationWizard'; // [CORREGIDO: Sin llaves si es default]
+import RarityBadge from '../ui/RarityBadge'; 
+import AssetCreationWizard from './AssetCreationWizard'; 
+import TechButton from '../ui/TechButton';
+import { cn } from '../../lib/utils';
 
 type BusinessAsset = Database['public']['Tables']['business_assets']['Row'];
 
 export const AssetManager: React.FC = () => {
-  const [assets, setAssets] = useState<BusinessAsset[]>([]);
-  const [loading, setLoading] = useState(true);
+  // Estado de Vista y Modal
   const [selectedAsset, setSelectedAsset] = useState<BusinessAsset | null>(null);
-  const [searchTerm, setSearchTerm] = useState('');
   const [showWizard, setShowWizard] = useState(false);
 
-  // Carga inicial basada en "0 Incertidumbre"
+  // Datos
+  const [assets, setAssets] = useState<BusinessAsset[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
+
   const fetchAssets = async () => {
     setLoading(true);
     const { data, error } = await supabase
@@ -32,122 +36,147 @@ export const AssetManager: React.FC = () => {
     fetchAssets();
   }, []);
 
+  // Función para actualizar la lista localmente al crear un activo
+  const handleAssetCreated = (newAsset: BusinessAsset) => {
+      setAssets(prev => [newAsset, ...prev]);
+  };
+
   const filteredAssets = assets.filter(a => 
     a.sku.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    a.rarity_tier.toLowerCase().includes(searchTerm.toLowerCase())
+    a.rarity_tier.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (a.matrix_id && a.matrix_id.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
-  // Si hay un activo seleccionado, mostramos su "Hoja de Mando"
+  // --- RENDER LOGIC ---
+
+  // 1. VISTA DE DETALLE (Drill-down)
   if (selectedAsset) {
     return (
-      <div className="animate-in fade-in slide-in-from-right duration-300">
-        <button 
-          onClick={() => setSelectedAsset(null)}
-          className="mb-4 text-[#00f0ff] hover:text-white flex items-center gap-2 font-mono text-sm uppercase tracking-wider"
-        >
-          ← Volver al Inventario
-        </button>
-        <AssetDetailView asset={selectedAsset} onBack={() => setSelectedAsset(null)} />
-      </div>
+        <AssetDetailView 
+            asset={selectedAsset} 
+            onBack={() => setSelectedAsset(null)} 
+        />
     );
   }
 
+  // 2. DASHBOARD GENERAL (Tabla)
   return (
-    <div className="space-y-6">
-      {/* Header Táctico */}
-      <div className="flex justify-between items-end border-b border-gray-800 pb-4">
+    <div className="space-y-6 h-full flex flex-col animate-in fade-in duration-300 relative">
+      
+      {/* Header */}
+      <div className="flex justify-between items-end border-b border-gray-800 pb-4 shrink-0">
         <div>
-          <h2 className="text-2xl font-bold text-[#00f0ff] tracking-wider uppercase glitch-text">
-            Inventario de Activos (SKUs)
+          <h2 className="text-2xl font-bold text-white tracking-wider uppercase flex items-center gap-3">
+            <Box className="w-6 h-6 text-tech-green" /> Inventario de Activos
           </h2>
           <p className="text-xs text-gray-500 font-mono mt-1">
             Gobernanza de Activos Digitales • {assets.length} Unidades Desplegadas
           </p>
         </div>
-        <button
-          onClick={() => setShowWizard(!showWizard)}
-          className="bg-green-900/20 text-green-400 border border-green-800 hover:bg-green-900/40 px-4 py-2 text-xs font-mono tracking-widest uppercase transition-all"
-        >
-          {showWizard ? 'Cancelar Despliegue' : '+ Nuevo Activo'}
-        </button>
+        
+        {/* BOTÓN FUNCIONAL - Activa el Modal */}
+        <TechButton 
+            variant="primary" 
+            label="NEW SILO PROTOCOL" 
+            icon={Plus} 
+            onClick={() => setShowWizard(true)} 
+        />
       </div>
 
-      {showWizard && (
-        <div className="bg-black/50 border border-gray-800 p-4 mb-6">
-          <AssetCreationWizard />
-        </div>
-      )}
-
-      {/* Barra de Comandos */}
-      <div className="flex gap-4 mb-6">
+      {/* Controles de Filtro */}
+      <div className="flex gap-4 shrink-0">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
           <input
             type="text"
-            placeholder="Buscar por SKU o Rarity..."
+            placeholder="Buscar por SKU, Rarity o Matrix ID..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full bg-black/40 border border-gray-800 text-gray-200 pl-10 pr-4 py-2 font-mono text-sm focus:border-[#00f0ff] focus:outline-none transition-colors"
+            className="w-full bg-black/40 border border-gray-800 text-gray-200 pl-10 pr-4 py-2 font-mono text-sm focus:border-tech-green focus:outline-none transition-colors"
           />
         </div>
-        <button className="px-4 py-2 border border-gray-800 text-gray-400 hover:text-[#00f0ff] hover:border-[#00f0ff] transition-colors">
+        <button className="px-4 py-2 border border-gray-800 text-gray-400 hover:text-tech-green hover:border-tech-green transition-colors">
           <Filter className="w-4 h-4" />
         </button>
       </div>
 
-      {/* Tabla de Activos */}
-      <div className="overflow-hidden border border-gray-800 bg-black/20">
-        <table className="w-full text-left border-collapse">
-          <thead>
-            <tr className="bg-gray-900/50 text-gray-500 text-xs font-mono uppercase tracking-wider border-b border-gray-800">
-              <th className="p-4">SKU (Identificador)</th>
-              <th className="p-4">Rango</th>
-              <th className="p-4 text-right">Score Total</th>
-              <th className="p-4 text-right">Tráfico</th>
-              <th className="p-4 text-right">Ingresos</th>
-              <th className="p-4 text-center">Estado</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-800">
+      {/* Tabla Principal */}
+      <div className="flex-1 overflow-hidden border border-gray-800 bg-void-gray/5 flex flex-col">
+        {/* Header Tabla - 12 Columnas */}
+        <div className="grid grid-cols-12 gap-4 p-4 bg-black border-b border-gray-800 text-[10px] font-mono text-gray-500 uppercase tracking-wider sticky top-0 z-0">
+            <div className="col-span-3">SKU / Identificador</div>
+            <div className="col-span-2">Matriz</div>
+            <div className="col-span-2">Rango</div>
+            <div className="col-span-1 text-right">Score</div>
+            <div className="col-span-2 text-right">Tráfico</div>
+            <div className="col-span-1 text-right">Ingresos</div>
+            <div className="col-span-1 text-center">Info</div>
+        </div>
+
+        {/* Body Tabla */}
+        <div className="overflow-y-auto flex-1 custom-scrollbar">
             {loading ? (
-              <tr><td colSpan={6} className="p-8 text-center text-gray-500 font-mono animate-pulse">Cargando Datos Tácticos...</td></tr>
+              <div className="p-8 text-center text-tech-green font-mono animate-pulse">CARGANDO DATOS TÁCTICOS...</div>
             ) : filteredAssets.map((asset) => (
-              <tr 
+              <div 
                 key={asset.sku} 
                 onClick={() => setSelectedAsset(asset)}
-                className="hover:bg-[#00f0ff]/5 cursor-pointer group transition-colors"
+                className="grid grid-cols-12 gap-4 p-4 border-b border-gray-800/50 hover:bg-void-gray/30 cursor-pointer group transition-all items-center text-xs sm:text-sm"
               >
-                <td className="p-4 font-mono text-gray-300 group-hover:text-white font-bold">
-                  <div className="flex items-center gap-2">
-                    <Box className="w-4 h-4 text-gray-600 group-hover:text-[#00f0ff]" />
-                    {asset.sku}
-                  </div>
-                </td>
-                <td className="p-4">
-                  <RarityBadge tier={asset.rarity_tier} />
-                </td>
-                <td className="p-4 text-right font-mono text-[#00f0ff]">
+                {/* SKU */}
+                <div className="col-span-3 font-mono text-gray-300 group-hover:text-tech-green font-bold flex items-center gap-2 truncate">
+                   <Box className="w-3 h-3 opacity-50 shrink-0" /> <span className="truncate">{asset.sku}</span>
+                </div>
+
+                {/* MATRIZ (NUEVO CAMPO) */}
+                <div className="col-span-2 font-mono text-gray-400 flex items-center gap-2 truncate">
+                    <Hexagon className="w-3 h-3 text-gray-600 group-hover:text-tech-green shrink-0" />
+                    <span className="truncate">{asset.matrix_id || 'N/A'}</span>
+                </div>
+
+                {/* RANGO */}
+                <div className="col-span-2">
+                  <RarityBadge tier={asset.rarity_tier} className="scale-90 origin-left" />
+                </div>
+
+                {/* SCORE */}
+                <div className="col-span-1 text-right font-mono text-tech-green">
                   {asset.total_score?.toFixed(0) || '0'}
-                </td>
-                <td className="p-4 text-right font-mono text-gray-400">
+                </div>
+
+                {/* TRÁFICO */}
+                <div className="col-span-2 text-right font-mono text-gray-400">
                   {asset.traffic_score?.toFixed(0) || '0'}
-                </td>
-                <td className="p-4 text-right font-mono text-green-500">
-                  ${asset.revenue_score?.toFixed(2) || '0.00'}
-                </td>
-                <td className="p-4 text-center">
-                  {!asset.payhip_link && asset.rarity_tier !== 'DUST' && (
-                     <span className="text-red-500 text-xs font-bold px-2 py-1 bg-red-900/20 border border-red-900 rounded">NO MONETIZED</span>
+                </div>
+
+                {/* INGRESOS */}
+                <div className="col-span-1 text-right font-mono text-yellow-500/80 truncate">
+                  ${asset.revenue_score?.toFixed(0) || '0'}
+                </div>
+
+                {/* INFO */}
+                <div className="col-span-1 text-center flex justify-center gap-1">
+                  {!asset.payhip_link && (
+                     <span className="text-[9px] text-red-500 border border-red-900 px-1 rounded cursor-help" title="Sin Monetización">$</span>
                   )}
                   {!asset.drive_link && (
-                     <span className="text-yellow-500 text-xs ml-2" title="No Drive Link">⚠️</span>
+                     <span className="text-[9px] text-yellow-500 border border-yellow-900 px-1 rounded cursor-help" title="Sin Archivos">D</span>
                   )}
-                </td>
-              </tr>
+                  {asset.payhip_link && asset.drive_link && (
+                    <span className="text-[9px] text-gray-600">OK</span>
+                  )}
+                </div>
+              </div>
             ))}
-          </tbody>
-        </table>
+        </div>
       </div>
+
+      {/* MODAL WIZARD - RENDERIZADO FUERA DEL FLUJO CONDICIONAL CORRECTAMENTE */}
+      <AssetCreationWizard 
+         isOpen={showWizard} 
+         onClose={() => setShowWizard(false)} 
+         onSuccess={handleAssetCreated}
+      />
     </div>
   );
 };

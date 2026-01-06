@@ -1,13 +1,12 @@
-
 import React, { useEffect, useState } from "react";
-import { ShieldAlert, Radar, Zap, Layers, Skull, Trash2, LayoutDashboard, Database, Activity, Hexagon } from "lucide-react";
+import { ShieldAlert, Radar, Zap, Layers, Skull, Trash2, LayoutDashboard, Database, Activity, Hexagon, Box } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { mockService } from "../../lib/supabase";
 
 interface NavItemProps {
   label: string;
   icon: React.ElementType;
-  count?: number; // Count from DB View
+  count?: number;
   alertLevel?: 'none' | 'low' | 'high';
   active?: boolean;
   shortcut?: string;
@@ -66,7 +65,6 @@ const SideNav: React.FC<SideNavProps> = ({ currentView, onNavigate }) => {
   });
 
   useEffect(() => {
-    // Simulating fetching counts from Views
     mockService.getViewCounts().then(data => {
       setCounts({
         hemorragia: data.radar_monetization_ready,
@@ -120,6 +118,12 @@ const SideNav: React.FC<SideNavProps> = ({ currentView, onNavigate }) => {
 
         {/* SECTOR TÁCTICO (ALT+2) */}
         <SectionTitle>02 // Táctico (Ops)</SectionTitle>
+        <NavItem 
+          label="Inventario" 
+          icon={Box} 
+          active={currentView === 'assets'}
+          onClick={() => onNavigate('assets')}
+        />
         <NavItem 
           label="Matrices" 
           icon={Hexagon} 
