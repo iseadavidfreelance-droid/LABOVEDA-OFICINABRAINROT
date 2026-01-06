@@ -236,11 +236,13 @@ const VoidTerminal: React.FC = () => {
            <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
                  <AnimatePresence>
-                   {nodes.map((node) => {
-                     const isSelected = selectedIds.has(node.id);
-                     return (
-                       <MotionDiv
-                         key={node.id}
+  {nodes
+    .filter(node => node.id && node.id !== "") // <--- FILTRO DE SEGURIDAD
+    .map((node) => {
+      const isSelected = selectedIds.has(node.id);
+      return (
+        <MotionDiv
+          key={node.id}
                          layout
                          initial={{ opacity: 0, scale: 0.8 }}
                          animate={{ opacity: 1, scale: 1 }}
@@ -317,10 +319,12 @@ const VoidTerminal: React.FC = () => {
            {/* SILOS LIST */}
            <div className="flex-1 flex flex-col border-b border-void-border overflow-hidden">
               <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
-                 <AnimatePresence>
-                 {silos.map(silo => (
-                    <MotionDiv
-                      key={silo.sku}
+    <AnimatePresence>
+    {silos
+    .filter(silo => silo.sku && silo.sku !== "") // <--- FILTRO DE SEGURIDAD
+    .map(silo => (
+        <MotionDiv
+            key={silo.sku}
                       initial={{ opacity: 0, x: 20 }}
                       animate={{ opacity: 1, x: 0 }}
                       onDragOver={(e: React.DragEvent) => { e.preventDefault(); setDragOverSilo(silo.sku); }}
