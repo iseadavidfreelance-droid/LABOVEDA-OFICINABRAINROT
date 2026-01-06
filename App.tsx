@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import AppLayout from './components/layout/AppLayout';
 import TechButton from './components/ui/TechButton';
@@ -10,12 +9,16 @@ import InfraConsole from './components/defense/InfraConsole';
 import GhostConsole from './components/defense/GhostConsole';
 import EliteVault from './components/strategy/EliteVault';
 import MatrixManager from './components/tactical/MatrixManager';
+import { AssetManager } from './components/tactical/AssetManager';
 import { MatrixProvider } from './context/MatrixContext';
 import { TacticalProvider } from './context/TacticalContext';
 import { LogProvider } from './context/LogContext';
 import CommandPalette from './components/ui/CommandPalette';
 import TacticalSheet from './components/ui/TacticalSheet';
 import KillLog from './components/ui/KillLog';
+
+// CORRECCIÓN: Ruta correcta desde la raíz
+import { supabase } from './lib/supabase'; 
 
 const App: React.FC = () => {
   const [currentView, setCurrentView] = useState('dashboard');
@@ -29,40 +32,16 @@ const App: React.FC = () => {
           <KillLog />
           <AppLayout currentView={currentView} onNavigate={setCurrentView}>
             
-            {/* VIEW: DEFENSE / HEMORRAGE */}
-            {currentView === 'hemorragia' && (
-              <HemorrhageConsole />
-            )}
+            {currentView === 'hemorragia' && <HemorrhageConsole />}
+            {currentView === 'infrastructure' && <InfraConsole />}
+            {currentView === 'ghosts' && <GhostConsole onNavigate={setCurrentView} />}
+            {currentView === 'matrices' && <MatrixManager />}
+            {currentView === 'assets' && <AssetManager />}
+            {currentView === 'void' && <VoidTerminal />}
+            {currentView === 'elite' && <EliteVault />}
 
-            {/* VIEW: DEFENSE / INFRASTRUCTURE */}
-            {currentView === 'infrastructure' && (
-              <InfraConsole />
-            )}
-
-            {/* VIEW: DEFENSE / GHOSTS */}
-            {currentView === 'ghosts' && (
-              <GhostConsole onNavigate={setCurrentView} />
-            )}
-
-            {/* VIEW: TACTICAL / MATRICES */}
-            {currentView === 'matrices' && (
-              <MatrixManager />
-            )}
-
-            {/* VIEW: TACTICAL / VOID */}
-            {currentView === 'void' && (
-              <VoidTerminal />
-            )}
-
-            {/* VIEW: STRATEGY / ELITE VAULT */}
-            {currentView === 'elite' && (
-              <EliteVault />
-            )}
-
-            {/* VIEW: DASHBOARD (Default) */}
             {currentView === 'dashboard' && (
               <div className="space-y-8 max-w-7xl mx-auto">
-                {/* Header Section */}
                 <div className="flex items-end justify-between border-b border-void-border pb-6">
                   <div>
                     <h2 className="text-3xl font-bold text-white tracking-widest uppercase mb-2">Comando Central</h2>
@@ -74,7 +53,6 @@ const App: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Stats Grid */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                   <div className="bg-void-gray/20 border border-void-border p-6 relative group">
                       <div className="absolute top-0 right-0 p-2 opacity-50 group-hover:opacity-100 transition-opacity">
@@ -100,7 +78,6 @@ const App: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Sample List to show Badges */}
                 <div className="border border-void-border bg-void-gray/10 p-6">
                   <h3 className="text-tech-green font-mono text-sm uppercase mb-4 border-b border-void-border/50 pb-2">Activos Destacados (Top Performers)</h3>
                   <div className="space-y-2">
@@ -123,8 +100,7 @@ const App: React.FC = () => {
               </div>
             )}
 
-            {/* VIEW: PLACEHOLDER FOR OTHERS */}
-            {!['dashboard', 'void', 'matrices', 'hemorragia', 'infrastructure', 'elite', 'ghosts'].includes(currentView) && (
+            {!['dashboard', 'void', 'matrices', 'hemorragia', 'infrastructure', 'elite', 'ghosts', 'assets'].includes(currentView) && (
               <div className="flex flex-col items-center justify-center h-full text-gray-500 font-mono">
                   <p className="text-xl">MÓDULO EN CONSTRUCCIÓN</p>
                   <p className="text-xs mt-2">ACCESO RESTRINGIDO A FASES FUTURAS</p>

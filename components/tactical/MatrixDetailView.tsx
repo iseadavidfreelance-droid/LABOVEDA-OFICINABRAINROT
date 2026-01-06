@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { ArrowLeft, Plus } from 'lucide-react';
 import { MatrixRegistry, BusinessAsset } from '../../types/database';
-import { tacticalService } from '../../lib/supabase'; // Usamos el servicio REAL
+import { supabase } from '../../lib/supabase';
 import TechButton from '../ui/TechButton';
 import RarityBadge from '../ui/RarityBadge';
 import { cn } from '../../lib/utils';
+import AssetCreationWizard from './AssetCreationWizard';
 
 interface MatrixDetailViewProps {
   matrix: MatrixRegistry;
@@ -15,47 +16,70 @@ interface MatrixDetailViewProps {
 const MatrixDetailView: React.FC<MatrixDetailViewProps> = ({ matrix, onBack, onSelectAsset }) => {
   const [assets, setAssets] = useState<BusinessAsset[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isWizardOpen, setIsWizardOpen] = useState(false);
 
-  // FETCH REAL AL MONTAR EL COMPONENTE
   useEffect(() => {
     const loadRealData = async () => {
       setLoading(true);
       try {
-        const realAssets = await tacticalService.getAssetsByMatrix(matrix.id);
-        setAssets(realAssets);
+        // TRADUCCIÓN SQL PARA ASSETS
+        const { data } = await supabase
+          .from('business_assets')
+          .select(`
+            *,
+            matrix_id:primary_matrix_id,
+            score:total_score,
+            tier:rarity_tier,
+            monetization_link:payhip_link
+          `)
+          .eq('primary_matrix_id', matrix.id) // matrix.id es el matrix_code gracias al mapeo en Manager
+          .order('total_score', { ascending: false });
+          
+        if (data) setAssets(data as any);
       } catch (error) {
-        console.error("System Error: Could not hydrate matrix assets", error);
-        // Aquí podrías disparar un toast de error
+        console.error("System Error", error);
       } finally {
         setLoading(false);
       }
     };
     loadRealData();
+
+    const channel = supabase.channel(`matrix-view-${matrix.id}`)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'business_assets', filter: `primary_matrix_id=eq.${matrix.id}` }, 
+        () => loadRealData())
+        .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+
   }, [matrix.id]);
 
   return (
     <div className="flex flex-col h-full animate-in fade-in slide-in-from-right-10 duration-200">
-      {/* HEADER TÁCTICO */}
       <div className="flex items-end justify-between border-b border-void-border pb-6 mb-6">
         <div className="flex items-center gap-4">
           <button onClick={onBack} className="p-2 hover:bg-void-gray text-gray-400 hover:text-white transition-colors">
             <ArrowLeft className="w-6 h-6" />
           </button>
           <div>
-            <h2 className="text-3xl font-bold text-white tracking-widest uppercase mb-1">
+            <h2 className="text-3xl font-bold text-white tracking-widest uppercase mb-1 flex items-center gap-2">
               {matrix.name}
+              <span className="text-[10px] bg-tech-green/10 text-tech-green px-2 py-0.5 rounded border border-tech-green/20 animate-pulse">LIVE</span>
             </h2>
             <div className="font-mono text-gray-500 text-xs flex gap-4 uppercase tracking-wider">
               <span>ID: <span className="text-gray-300">{matrix.code}</span></span>
               <span>EFICIENCIA: <span className="text-tech-green">{matrix.efficiency_score}%</span></span>
-              <span>ACTIVOS TOTALES: <span className="text-white">{matrix.total_assets_count}</span></span>
             </div>
           </div>
         </div>
-        <TechButton variant="primary" icon={Plus} label="CREAR ASSET EN MATRIZ" />
+        
+        <TechButton 
+            variant="primary" 
+            icon={Plus} 
+            label="NEW SILO PROTOCOL" 
+            onClick={() => setIsWizardOpen(true)} 
+        />
       </div>
 
-      {/* DATA GRID REAL */}
       <div className="border border-void-border bg-void-gray/10 flex-1 overflow-hidden flex flex-col relative">
         <div className="grid grid-cols-12 gap-4 p-3 border-b border-void-border text-[10px] font-mono text-gray-500 uppercase tracking-wider bg-black/50 backdrop-blur-sm sticky top-0 z-10">
           <div className="col-span-2">SKU (PK)</div>
@@ -68,7 +92,7 @@ const MatrixDetailView: React.FC<MatrixDetailViewProps> = ({ matrix, onBack, onS
         <div className="overflow-y-auto flex-1 custom-scrollbar">
           {loading ? (
              <div className="h-full flex items-center justify-center">
-                <div className="text-tech-green font-mono animate-pulse text-sm">SYNCING WITH SUPABASE...</div>
+                <div className="text-tech-green font-mono animate-pulse text-sm">SYNCING NEURAL LINK...</div>
              </div>
           ) : assets.length === 0 ? (
              <div className="p-8 text-center text-gray-600 font-mono text-sm border-t border-dashed border-gray-800 mt-10">
@@ -97,6 +121,12 @@ const MatrixDetailView: React.FC<MatrixDetailViewProps> = ({ matrix, onBack, onS
           )}
         </div>
       </div>
+
+      <AssetCreationWizard 
+         isOpen={isWizardOpen} 
+         onClose={() => setIsWizardOpen(false)} 
+         preselectedMatrixId={matrix.id}
+      />
     </div>
   );
 };

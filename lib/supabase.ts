@@ -14,12 +14,10 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 /**
  * DATA SERVICE (REAL PRODUCTION)
- * Strictly mapped to Alfa_OS_Brain Schema with ADAPTER PATTERN
  */
 export const mockService = {
   
   // --- ONTOLOGY CONTEXT (MATRICES) ---
-
   async getMatrices(): Promise<MatrixRegistry[]> {
     const { data, error } = await supabase
       .from('matrix_registry')
@@ -53,8 +51,7 @@ export const mockService = {
     if (error) throw error;
   },
 
-  // --- CEREBRO: GENERADOR DE IDENTIDAD (NUEVO) ---
-  
+  // --- CEREBRO: GENERADOR DE IDENTIDAD ---
   async generateNextAssetIdentity(matrixId: string): Promise<{ sku: string; name: string }> {
     const { data: matrix, error: matrixError } = await supabase
       .from('matrix_registry')
@@ -82,7 +79,6 @@ export const mockService = {
   },
 
   // --- TACTICAL SECTOR (VOID) ---
-
   async getOrphanedNodes(): Promise<PinterestNode[]> {
     const { data, error } = await supabase
         .from('pinterest_nodes')
@@ -147,11 +143,9 @@ export const mockService = {
       if (error) throw error;
   },
 
-  // --- FUNCIONES RESTAURADAS (CRÍTICAS PARA EL BUSCADOR) ---
-
+  // --- FUNCIONES RESTAURADAS ---
   async searchAssets(query: string): Promise<BusinessAsset[]> {
     if (!query) return [];
-    
     const { data, error } = await supabase
         .from('business_assets')
         .select(`
@@ -188,7 +182,6 @@ export const mockService = {
   },
 
   // ---------------------------------------------------------
-
   async assignNodesToAsset(nodeIds: string[], assetSku: string): Promise<boolean> {
       const { error } = await supabase
         .from('pinterest_nodes')
@@ -218,7 +211,6 @@ export const mockService = {
   },
 
   // --- UTILS ---
-  
   async getViewCounts() {
     try {
       const [hemorragia, infra, ghosts, void_radar, dust] = await Promise.all([
@@ -287,14 +279,14 @@ export const mockService = {
       return data as RadarConversionAlert[];
   }
 };
-// SERVICIO TÁCTICO REAL (CORREGIDO)
+
+// SERVICIO TÁCTICO REAL
 export const tacticalService = {
   
-  // 1. Obtener Assets de una Matriz específica (Con Alias para el Frontend)
+  // 1. Obtener Assets de una Matriz
   getAssetsByMatrix: async (matrixId: string) => {
     const { data, error } = await supabase
       .from('business_assets')
-      // SINTAXIS: alias:columna_original
       .select(`
         *,
         matrix_id:primary_matrix_id,
@@ -305,15 +297,11 @@ export const tacticalService = {
       .eq('primary_matrix_id', matrixId) 
       .order('total_score', { ascending: false });
 
-    if (error) {
-      console.error('FATAL: Error fetching assets for matrix', matrixId, error);
-      throw error;
-    }
+    if (error) throw error;
     return data;
   },
 
-  // 2. Obtener Nodos (Pines) por Asset
-  // 2. Obtener Nodos (Pines) por Asset (CORREGIDO - MAPEO DE COLUMNAS)
+  // 2. Obtener Nodos (Pines)
   getNodesByAsset: async (sku: string) => {
     const { data, error } = await supabase
       .from('pinterest_nodes')
@@ -323,18 +311,14 @@ export const tacticalService = {
         saves:cached_pin_clicks,              
         outbound_clicks:cached_outbound_clicks
       `)
-      // NOTA: 'saves' se mapea a 'cached_pin_clicks' provisionalmente según disponibilidad del Manifiesto
       .eq('asset_sku', sku)
-      .order('cached_impressions', { ascending: false }); // IMPORTANTE: Ordenar por la columna REAL de la BD
+      .order('cached_impressions', { ascending: false });
 
-    if (error) {
-      console.error('FATAL: Error fetching nodes for sku', sku, error);
-      throw error;
-    }
+    if (error) throw error;
     return data;
   },
 
-  // 3. Actualizar Infraestructura (Opción Táctica)
+  // 3. Actualizar Infraestructura
   updateAssetInfra: async (sku: string, updates: any) => {
     const { error } = await supabase
       .from('business_assets')
@@ -342,5 +326,24 @@ export const tacticalService = {
       .eq('sku', sku);
       
     if (error) throw error;
+  }, 
+
+  // 4. Crear Nuevo Asset
+  createAsset: async (assetData: { name: string; sku: string; matrix_id: string }) => {
+    const { data, error } = await supabase
+      .from('business_assets')
+      .insert({
+        sku: assetData.sku,
+        primary_matrix_id: assetData.matrix_id,
+        rarity_tier: 'DUST',
+        total_score: 0,
+        traffic_score: 0,
+        revenue_score: 0
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
   }
 };

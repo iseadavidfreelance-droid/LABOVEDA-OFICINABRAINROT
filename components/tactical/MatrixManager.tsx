@@ -1,16 +1,14 @@
 import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { MatrixRegistry, BusinessAsset } from '../../types/database';
-import { mockService } from '../../lib/supabase'; // Mantengo mockService para fetchMatrices si aún lo usas así, o cámbialo a tacticalService
+import { mockService } from '../../lib/supabase';
 import { useLog } from '../../context/LogContext';
 import TechButton from '../ui/TechButton';
 import TechInput from '../ui/TechInput';
-import { Hexagon, Plus, X, Server, ArrowLeft } from 'lucide-react';
+import { Hexagon, Plus, ArrowLeft, X, Activity } from 'lucide-react';
 import { cn } from '../../lib/utils';
-
-// Importamos las nuevas vistas separadas
 import MatrixDetailView from './MatrixDetailView';
-import AssetDetailView from './AssetDetailView';
+import { AssetDetailView } from './AssetDetailView';
 
 const MatrixManager: React.FC = () => {
   // Navigation State
@@ -22,13 +20,17 @@ const MatrixManager: React.FC = () => {
   const [matrices, setMatrices] = useState<MatrixRegistry[]>([]);
   const [loading, setLoading] = useState(true);
   
-  // Modal State
+  // Modal State & Form Data
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [formData, setFormData] = useState({ code: '', name: '', type: 'PRIMARY' as const });
-  
+  const [formData, setFormData] = useState({ 
+    code: '', 
+    name: '', 
+    type: 'PRIMARY' as 'PRIMARY' | 'SECONDARY' 
+  });
+
+  // Hook de Auditoría
   const { addLog } = useLog();
-  const MotionDiv = motion.div as any;
 
   useEffect(() => {
     fetchMatrices();
@@ -36,10 +38,14 @@ const MatrixManager: React.FC = () => {
 
   const fetchMatrices = async () => {
     setLoading(true);
-    // Asumo que esto ya conecta a Supabase en tu versión actual
-    const data = await mockService.getMatrices(); 
-    setMatrices(data);
-    setLoading(false);
+    try {
+        const data = await mockService.getMatrices(); 
+        setMatrices(data);
+    } catch (e) {
+        console.error("Error loading matrices", e);
+    } finally {
+        setLoading(false);
+    }
   };
 
   // --- NAVIGATION HANDLERS ---
@@ -64,15 +70,49 @@ const MatrixManager: React.FC = () => {
     setSelectedAsset(null);
   };
 
-  // --- MODAL HANDLERS (Create Matrix) ---
+  // --- MODAL HANDLERS ---
   const handleOpenModal = () => {
-    setFormData({ code: '', name: '', type: 'PRIMARY' });
+    setFormData({ code: '', name: '', type: 'PRIMARY' }); 
     setIsModalOpen(true);
   };
 
   const handleSubmit = async () => {
-     // ... (Tu lógica de submit existente se mantiene igual)
-     // ...
+     // Validación simple
+     if (!formData.code || !formData.name) {
+         alert("Por favor completa el Código y el Nombre.");
+         return;
+     }
+     
+     setSaving(true);
+     try {
+         await mockService.createMatrix({
+             code: formData.code.toUpperCase(),
+             name: formData.name,
+             type: formData.type
+         });
+         
+         // [CORRECCIÓN] Firma de función correcta: (mensaje, tipo)
+         // Antes enviabas un objeto, eso rompía el KillLog
+         addLog(
+            `MATRIX INITIALIZED: ${formData.code.toUpperCase()} [${formData.type}]`,
+            'success' // 'success' en minúscula coincide con LogEntry['type']
+         );
+         
+         await fetchMatrices();
+         setIsModalOpen(false);
+     } catch (error) {
+         console.error("Error creating matrix", error);
+         
+         // [CORRECCIÓN] Firma correcta para error
+         addLog(
+            `MATRIX INIT FAILED: ${formData.code.toUpperCase()}`,
+            'error'
+         );
+         
+         alert("Error crítico al inicializar matriz. Revisa la consola.");
+     } finally {
+         setSaving(false);
+     }
   };
 
   // --- RENDER ROUTER ---
@@ -114,7 +154,10 @@ const MatrixManager: React.FC = () => {
         </div>
         <div className="overflow-y-auto flex-1 custom-scrollbar">
           {loading ? (
-            <div className="p-8 text-center text-tech-green animate-pulse font-mono">LOADING ONTOLOGY...</div>
+            <div className="p-8 text-center text-tech-green animate-pulse font-mono flex flex-col items-center gap-4">
+                <Activity className="w-6 h-6 animate-spin" />
+                LOADING ONTOLOGY...
+            </div>
           ) : (
              matrices.map((matrix) => (
                 <div 
@@ -136,12 +179,72 @@ const MatrixManager: React.FC = () => {
         </div>
       </div>
       
-      {/* Mantén tu Modal de Creación existente aquí */}
+      {/* MODAL DE CREACIÓN */}
       <AnimatePresence>
         {isModalOpen && (
-            // ... Tu código de modal existente
-            <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-               {/* ... */}
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+               <div className="bg-gray-950 bg-void-black border border-gray-700 border-void-border p-6 max-w-md w-full relative animate-in zoom-in-95 duration-200 shadow-2xl shadow-tech-green/10">
+                  <button 
+                    onClick={() => setIsModalOpen(false)} 
+                    className="absolute top-4 right-4 text-gray-500 hover:text-white"
+                  >
+                    <X className="w-4 h-4"/>
+                  </button>
+                  
+                  <h3 className="text-white mb-6 text-xl font-bold tracking-wider flex items-center gap-2">
+                      <Hexagon className="w-5 h-5 text-tech-green" /> NUEVA MATRIZ
+                  </h3>
+                  
+                  <div className="space-y-4">
+                      <TechInput 
+                        label="CÓDIGO (ID)" 
+                        value={formData.code} 
+                        onChange={(e) => setFormData({...formData, code: e.target.value.toUpperCase()})}
+                        placeholder="EJ: ALFA"
+                      />
+                      
+                      <TechInput 
+                        label="NOMBRE VISUAL" 
+                        value={formData.name} 
+                        onChange={(e) => setFormData({...formData, name: e.target.value})}
+                        placeholder="EJ: PROYECTO ALFA"
+                      />
+                      
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-mono text-gray-500 uppercase tracking-wider">TIPO DE ESTRUCTURA</label>
+                        <div className="flex gap-2">
+                            {['PRIMARY', 'SECONDARY'].map((type) => (
+                                <button
+                                    key={type}
+                                    onClick={() => setFormData({...formData, type: type as any})}
+                                    className={cn(
+                                        "flex-1 py-2 text-xs font-mono border transition-all",
+                                        formData.type === type 
+                                            ? "border-tech-green bg-tech-green/10 text-tech-green" 
+                                            : "border-gray-800 text-gray-500 hover:border-gray-600"
+                                    )}
+                                >
+                                    {type}
+                                </button>
+                            ))}
+                        </div>
+                      </div>
+
+                      <div className="flex gap-3 mt-6 pt-4 border-t border-gray-800 border-void-border">
+                          <TechButton 
+                            variant="ghost" 
+                            label="CANCELAR" 
+                            onClick={() => setIsModalOpen(false)} 
+                          />
+                          <TechButton 
+                            variant="primary" 
+                            label={saving ? "INICIALIZANDO..." : "CREAR MATRIZ"} 
+                            onClick={handleSubmit} 
+                            disabled={saving} 
+                          />
+                      </div>
+                  </div>
+               </div>
             </div>
         )}
       </AnimatePresence>
