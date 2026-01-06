@@ -14,14 +14,13 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 /**
  * DATA SERVICE (REAL PRODUCTION)
- * Strictly mapped to Alfa_OS_Brain Schema
+ * Strictly mapped to Alfa_OS_Brain Schema with ADAPTER PATTERN
  */
 export const mockService = {
   
   // --- ONTOLOGY CONTEXT ---
 
   async getMatrices(): Promise<MatrixRegistry[]> {
-    // Mapeo: matrix_code -> code, total_score -> efficiency_score
     const { data, error } = await supabase
       .from('matrix_registry')
       .select(`
@@ -42,17 +41,14 @@ export const mockService = {
     const { error } = await supabase
       .from('matrix_registry')
       .insert({
-        matrix_code: matrix.code, // Traducción al escribir
+        matrix_code: matrix.code,
         type: matrix.type,
-        // Otros campos calculados se omiten al crear
       });
     
     if (error) throw error;
   },
 
   async getViewCounts() {
-    // Parallel count queries for the sidebar badges
-    // NOTA: Si alguna vista no existe, devolverá 0 silenciosamente para no romper la UI
     try {
       const [hemorragia, infra, ghosts, void_radar, dust] = await Promise.all([
         supabase.from('radar_monetization_ready').select('*', { count: 'exact', head: true }),
@@ -81,7 +77,7 @@ export const mockService = {
       .select('*')
       .order('started_at', { ascending: false })
       .limit(1)
-      .maybeSingle(); // 'maybeSingle' evita error si la tabla está vacía
+      .maybeSingle();
 
     if (error) {
        console.error("Heartbeat Error", error);
@@ -91,7 +87,7 @@ export const mockService = {
     return {
       status: data?.status || 'STANDBY',
       started_at: data?.started_at,
-      records_processed: data?.items_processed || 0 // items_processed es el nombre real en DB
+      records_processed: data?.items_processed || 0
     };
   },
 
@@ -111,22 +107,46 @@ export const mockService = {
   // --- TACTICAL SECTOR (VOID) ---
 
   async getOrphanedNodes(): Promise<PinterestNode[]> {
+    // CORRECCIÓN 0 INCERTIDUMBRE: 
+    // 1. Pedimos SOLO columnas reales (pin_id, title, etc) para evitar Error 400
+    // 2. NO pedimos 'url' ni 'created_at' a la BD
     const { data, error } = await supabase
         .from('pinterest_nodes')
-        .select('*')
+        .select(`
+          pin_id,
+          title,
+          description,
+          image_url,
+          cached_impressions,
+          cached_pin_clicks,
+          cached_outbound_clicks
+        `)
         .is('asset_sku', null)
         .limit(100); 
 
     if (error) throw error;
-    return data as PinterestNode[];
+
+    // ADAPTADOR DE DATOS: Rellenamos lo que falta y mapeamos ID
+    return (data || []).map((n: any) => ({
+      id: n.pin_id,  // <--- LA CLAVE: Mapeamos pin_id a id para que React lo vea
+      pin_id: n.pin_id,
+      asset_sku: null,
+      title: n.title,
+      description: n.description,
+      image_url: n.image_url,
+      // Construimos URL falsa funcional
+      url: `https://pinterest.com/pin/${n.pin_id}`, 
+      // Métricas mapeadas de cached_ a nombres cortos
+      impressions: n.cached_impressions || 0,
+      saves: 0,
+      outbound_clicks: n.cached_outbound_clicks || 0,
+      // Fechas simuladas para evitar crash
+      created_at: new Date().toISOString(), 
+      updated_at: new Date().toISOString()
+    })) as PinterestNode[];
   },
 
   async getTacticalSilos(): Promise<BusinessAsset[]> {
-     // CORRECCIÓN CRÍTICA:
-     // 1. name:sku -> Usamos el SKU como nombre porque la columna 'name' no es nativa original.
-     // 2. updated_at:last_audit_at -> Mapeamos la fecha de auditoría como actualización.
-     // 3. Eliminado .eq('status', 'ACTIVE') porque la columna status no existe.
-     
      const { data, error } = await supabase
         .from('business_assets')
         .select(`
@@ -139,23 +159,20 @@ export const mockService = {
           description:drive_link,
           updated_at:last_audit_at
         `)
-        // .eq('status', 'ACTIVE') // REMOVIDO POR INEXISTENTE
         .limit(50);
     
      if (error) throw error;
-     // Forzamos el tipo AssetStatus.ACTIVE ya que no viene de DB
+     // Forzamos status ACTIVE
      return (data || []).map(d => ({ ...d, status: AssetStatus.ACTIVE })) as unknown as BusinessAsset[];
   },
 
   async createAsset(asset: BusinessAsset): Promise<void> {
-      // Mapeo inverso para escribir en DB
       const { error } = await supabase
           .from('business_assets')
           .insert({
              sku: asset.sku,
              primary_matrix_id: asset.matrix_id,
              rarity_tier: asset.tier,
-             // No enviamos 'name' ni 'status' ni 'created_at' si la DB los genera o no los tiene
           });
       if (error) throw error;
   },
@@ -163,7 +180,6 @@ export const mockService = {
   async searchAssets(query: string): Promise<BusinessAsset[]> {
     if (!query) return [];
     
-    // Solo buscamos por SKU porque 'name' no es fiable
     const { data, error } = await supabase
         .from('business_assets')
         .select(`
@@ -200,22 +216,22 @@ export const mockService = {
   },
 
   async assignNodesToAsset(nodeIds: string[], assetSku: string): Promise<boolean> {
+      // Usamos 'pin_id' para el match en DB
       const { error } = await supabase
         .from('pinterest_nodes')
         .update({ asset_sku: assetSku })
-        .in('pin_id', nodeIds); // OJO: Tu PK es pin_id según esquema, no id? Verifica esto. El frontend usa 'id', mapearemos si es necesario.
-        // Si tu tabla pinterest_nodes tiene columna 'id' (uuid) y 'pin_id' (texto), usa 'id'.
-        // Asumiré 'id' basado en el código previo, si falla, cambia a .in('pin_id', ...)
+        .in('pin_id', nodeIds); 
 
       if (error) throw error;
       return true;
   },
 
   async incinerateNodes(nodeIds: string[]): Promise<boolean> {
+      // Usamos 'pin_id' para el borrado
       const { error } = await supabase
         .from('pinterest_nodes')
         .delete()
-        .in('id', nodeIds);
+        .in('pin_id', nodeIds);
       
       if (error) throw error;
       return true;
@@ -233,7 +249,7 @@ export const mockService = {
 
   async getMonetizationGaps(matrixId?: string | null): Promise<RadarMonetizationReady[]> {
     let query = supabase.from('radar_monetization_ready').select('*');
-    if (matrixId) query = query.eq('matrix_id', matrixId); // Asegúrate que la vista tenga esta columna
+    if (matrixId) query = query.eq('matrix_id', matrixId);
     
     const { data, error } = await query;
     if (error) throw error;
@@ -260,8 +276,8 @@ export const mockService = {
 
   async patchAsset(sku: string, field: 'payhip' | 'drive', value: string): Promise<boolean> {
     const updatePayload: any = {};
-    if (field === 'payhip') updatePayload.payhip_link = value; // Nombre real DB
-    if (field === 'drive') updatePayload.drive_link = value;   // Nombre real DB
+    if (field === 'payhip') updatePayload.payhip_link = value;
+    if (field === 'drive') updatePayload.drive_link = value;
 
     const { error } = await supabase
         .from('business_assets')
