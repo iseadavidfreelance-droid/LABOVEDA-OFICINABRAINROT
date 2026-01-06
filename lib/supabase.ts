@@ -18,7 +18,7 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
  */
 export const mockService = {
   
-  // --- ONTOLOGY CONTEXT ---
+  // --- ONTOLOGY CONTEXT (MATRICES) ---
 
   async getMatrices(): Promise<MatrixRegistry[]> {
     const { data, error } = await supabase
@@ -26,7 +26,7 @@ export const mockService = {
       .select(`
         id:matrix_code,
         code:matrix_code,
-        name:matrix_code,
+        visual_name,
         type,
         total_assets_count:asset_count,
         efficiency_score:total_score
@@ -34,82 +34,56 @@ export const mockService = {
       .order('matrix_code', { ascending: true });
     
     if (error) throw error;
-    return data as unknown as MatrixRegistry[];
+    
+    return (data || []).map((m: any) => ({
+      ...m,
+      name: m.visual_name || m.code 
+    })) as MatrixRegistry[];
   },
 
-  async createMatrix(matrix: Partial<MatrixRegistry>): Promise<void> {
+  async createMatrix(matrix: { code: string; name: string; type: string }): Promise<void> {
     const { error } = await supabase
       .from('matrix_registry')
       .insert({
         matrix_code: matrix.code,
+        visual_name: matrix.name, 
         type: matrix.type,
       });
     
     if (error) throw error;
   },
 
-  async getViewCounts() {
-    try {
-      const [hemorragia, infra, ghosts, void_radar, dust] = await Promise.all([
-        supabase.from('radar_monetization_ready').select('*', { count: 'exact', head: true }),
-        supabase.from('radar_infrastructure_gap').select('*', { count: 'exact', head: true }),
-        supabase.from('radar_ghost_assets').select('*', { count: 'exact', head: true }),
-        supabase.from('radar_the_void').select('*', { count: 'exact', head: true }),
-        supabase.from('radar_dust_cleaner').select('*', { count: 'exact', head: true }),
-      ]);
+  // --- CEREBRO: GENERADOR DE IDENTIDAD (NUEVO) ---
+  
+  async generateNextAssetIdentity(matrixId: string): Promise<{ sku: string; name: string }> {
+    const { data: matrix, error: matrixError } = await supabase
+      .from('matrix_registry')
+      .select('matrix_code, visual_name')
+      .eq('matrix_code', matrixId)
+      .single();
 
-      return {
-        radar_monetization_ready: hemorragia.count || 0,
-        radar_infrastructure_gap: infra.count || 0,
-        radar_ghost_assets: ghosts.count || 0,
-        radar_the_void: void_radar.count || 0,
-        radar_dust_cleaner: dust.count || 0,
-      };
-    } catch (e) {
-      console.warn("View access error", e);
-      return { radar_monetization_ready: 0, radar_infrastructure_gap: 0, radar_ghost_assets: 0, radar_the_void: 0, radar_dust_cleaner: 0 };
-    }
-  },
+    if (matrixError || !matrix) throw new Error("MATRIX_NOT_FOUND");
 
-  async getSystemHeartbeat() {
-    const { data, error } = await supabase
-      .from('ingestion_cycles')
-      .select('*')
-      .order('started_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
+    const { count, error: countError } = await supabase
+      .from('business_assets')
+      .select('*', { count: 'exact', head: true })
+      .eq('primary_matrix_id', matrixId);
 
-    if (error) {
-       console.error("Heartbeat Error", error);
-       return { status: 'OFFLINE', started_at: new Date().toISOString(), records_processed: 0 };
-    }
+    if (countError) throw new Error("CALCULATION_ERROR");
 
-    return {
-      status: data?.status || 'STANDBY',
-      started_at: data?.started_at,
-      records_processed: data?.items_processed || 0
-    };
-  },
+    const nextSequence = (count || 0) + 1;
+    const paddedSequence = nextSequence.toString().padStart(3, '0');
+    
+    const generatedSku = `SKU-${matrix.matrix_code}-${paddedSequence}`;
+    const visualPrefix = matrix.visual_name || matrix.matrix_code;
+    const generatedName = `${visualPrefix} ${paddedSequence.slice(-2)}`; 
 
-  async getGlobalKPIs() {
-    const [assets, nodes] = await Promise.all([
-        supabase.from('business_assets').select('*', { count: 'exact', head: true }),
-        supabase.from('pinterest_nodes').select('*', { count: 'exact', head: true })
-    ]);
-
-    return {
-      total_assets: assets.count || 0,
-      total_nodes: nodes.count || 0,
-      efficiency_avg: 0 
-    };
+    return { sku: generatedSku, name: generatedName };
   },
 
   // --- TACTICAL SECTOR (VOID) ---
 
   async getOrphanedNodes(): Promise<PinterestNode[]> {
-    // CORRECCIÓN 0 INCERTIDUMBRE: 
-    // 1. Pedimos SOLO columnas reales (pin_id, title, etc) para evitar Error 400
-    // 2. NO pedimos 'url' ni 'created_at' a la BD
     const { data, error } = await supabase
         .from('pinterest_nodes')
         .select(`
@@ -126,21 +100,17 @@ export const mockService = {
 
     if (error) throw error;
 
-    // ADAPTADOR DE DATOS: Rellenamos lo que falta y mapeamos ID
     return (data || []).map((n: any) => ({
-      id: n.pin_id,  // <--- LA CLAVE: Mapeamos pin_id a id para que React lo vea
+      id: n.pin_id,
       pin_id: n.pin_id,
       asset_sku: null,
       title: n.title,
       description: n.description,
       image_url: n.image_url,
-      // Construimos URL falsa funcional
       url: `https://pinterest.com/pin/${n.pin_id}`, 
-      // Métricas mapeadas de cached_ a nombres cortos
       impressions: n.cached_impressions || 0,
-      saves: 0,
+      clicks: n.cached_pin_clicks || 0,
       outbound_clicks: n.cached_outbound_clicks || 0,
-      // Fechas simuladas para evitar crash
       created_at: new Date().toISOString(), 
       updated_at: new Date().toISOString()
     })) as PinterestNode[];
@@ -162,7 +132,6 @@ export const mockService = {
         .limit(50);
     
      if (error) throw error;
-     // Forzamos status ACTIVE
      return (data || []).map(d => ({ ...d, status: AssetStatus.ACTIVE })) as unknown as BusinessAsset[];
   },
 
@@ -172,10 +141,13 @@ export const mockService = {
           .insert({
              sku: asset.sku,
              primary_matrix_id: asset.matrix_id,
-             rarity_tier: asset.tier,
+             rarity_tier: asset.tier, 
+             name: asset.name 
           });
       if (error) throw error;
   },
+
+  // --- FUNCIONES RESTAURADAS (CRÍTICAS PARA EL BUSCADOR) ---
 
   async searchAssets(query: string): Promise<BusinessAsset[]> {
     if (!query) return [];
@@ -215,8 +187,9 @@ export const mockService = {
     return { ...data, status: AssetStatus.ACTIVE } as unknown as BusinessAsset;
   },
 
+  // ---------------------------------------------------------
+
   async assignNodesToAsset(nodeIds: string[], assetSku: string): Promise<boolean> {
-      // Usamos 'pin_id' para el match en DB
       const { error } = await supabase
         .from('pinterest_nodes')
         .update({ asset_sku: assetSku })
@@ -227,7 +200,6 @@ export const mockService = {
   },
 
   async incinerateNodes(nodeIds: string[]): Promise<boolean> {
-      // Usamos 'pin_id' para el borrado
       const { error } = await supabase
         .from('pinterest_nodes')
         .delete()
@@ -245,64 +217,70 @@ export const mockService = {
     if (error) throw error;
   },
 
-  // --- DEFENSE SECTOR (RADAR) ---
+  // --- UTILS ---
+  
+  async getViewCounts() {
+    try {
+      const [hemorragia, infra, ghosts, void_radar, dust] = await Promise.all([
+        supabase.from('radar_monetization_ready').select('*', { count: 'exact', head: true }),
+        supabase.from('radar_infrastructure_gap').select('*', { count: 'exact', head: true }),
+        supabase.from('radar_ghost_assets').select('*', { count: 'exact', head: true }),
+        supabase.from('radar_the_void').select('*', { count: 'exact', head: true }),
+        supabase.from('radar_dust_cleaner').select('*', { count: 'exact', head: true }),
+      ]);
+      return {
+        radar_monetization_ready: hemorragia.count || 0,
+        radar_infrastructure_gap: infra.count || 0,
+        radar_ghost_assets: ghosts.count || 0,
+        radar_the_void: void_radar.count || 0,
+        radar_dust_cleaner: dust.count || 0,
+      };
+    } catch (e) { return { radar_monetization_ready: 0, radar_infrastructure_gap: 0, radar_ghost_assets: 0, radar_the_void: 0, radar_dust_cleaner: 0 }; }
+  },
 
-  async getMonetizationGaps(matrixId?: string | null): Promise<RadarMonetizationReady[]> {
+  async getSystemHeartbeat() {
+    const { data, error } = await supabase.from('ingestion_cycles').select('*').order('started_at', { ascending: false }).limit(1).maybeSingle();
+    if (error) return { status: 'OFFLINE', started_at: new Date().toISOString(), records_processed: 0 };
+    return { status: data?.status || 'STANDBY', started_at: data?.started_at, records_processed: data?.items_processed || 0 };
+  },
+
+  async getGlobalKPIs() {
+    const [assets, nodes] = await Promise.all([
+        supabase.from('business_assets').select('*', { count: 'exact', head: true }),
+        supabase.from('pinterest_nodes').select('*', { count: 'exact', head: true })
+    ]);
+    return { total_assets: assets.count || 0, total_nodes: nodes.count || 0, efficiency_avg: 0 };
+  },
+
+  // --- RADARES ---
+  async getMonetizationGaps(matrixId?: string | null) {
     let query = supabase.from('radar_monetization_ready').select('*');
     if (matrixId) query = query.eq('matrix_id', matrixId);
-    
-    const { data, error } = await query;
-    if (error) throw error;
-    return data as RadarMonetizationReady[];
+    const { data } = await query; return data || [];
   },
-
-  async getInfrastructureGaps(matrixId?: string | null): Promise<RadarInfrastructureGap[]> {
+  async getInfrastructureGaps(matrixId?: string | null) {
     let query = supabase.from('radar_infrastructure_gap').select('*');
     if (matrixId) query = query.eq('matrix_id', matrixId);
-
-    const { data, error } = await query;
-    if (error) throw error;
-    return data as RadarInfrastructureGap[];
+    const { data } = await query; return data || [];
   },
-
-  async getGhostAssets(matrixId?: string | null): Promise<RadarGhostAssets[]> {
+  async getGhostAssets(matrixId?: string | null) {
     let query = supabase.from('radar_ghost_assets').select('*');
     if (matrixId) query = query.eq('matrix_id', matrixId);
-
-    const { data, error } = await query;
-    if (error) throw error;
-    return data as RadarGhostAssets[];
+    const { data } = await query; return data || [];
   },
-
   async patchAsset(sku: string, field: 'payhip' | 'drive', value: string): Promise<boolean> {
     const updatePayload: any = {};
     if (field === 'payhip') updatePayload.payhip_link = value;
     if (field === 'drive') updatePayload.drive_link = value;
-
-    const { error } = await supabase
-        .from('business_assets')
-        .update(updatePayload)
-        .eq('sku', sku);
-
+    const { error } = await supabase.from('business_assets').update(updatePayload).eq('sku', sku);
     if (error) throw error;
     return true;
   },
-
-  // --- STRATEGY SECTOR ---
-
-  async getEliteAnalytics(orderBy: string = 'efficiency_index', ascending: boolean = false, matrixId?: string | null): Promise<ViewEliteAnalytics[]> {
-    let query = supabase
-        .from('view_elite_analytics')
-        .select('*')
-        .order(orderBy, { ascending });
-    
+  async getEliteAnalytics(orderBy = 'efficiency_index', ascending = false, matrixId?: string | null) {
+    let query = supabase.from('view_elite_analytics').select('*').order(orderBy, { ascending });
     if (matrixId) query = query.eq('matrix_id', matrixId);
-
-    const { data, error } = await query;
-    if (error) throw error;
-    return data as ViewEliteAnalytics[];
+    const { data } = await query; return data || [];
   },
-
   async getConversionAlerts(): Promise<RadarConversionAlert[]> {
       const { data, error } = await supabase.from('radar_conversion_alert').select('*'); 
       if (error) return [];
