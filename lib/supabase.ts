@@ -287,3 +287,60 @@ export const mockService = {
       return data as RadarConversionAlert[];
   }
 };
+// SERVICIO TÁCTICO REAL (CORREGIDO)
+export const tacticalService = {
+  
+  // 1. Obtener Assets de una Matriz específica (Con Alias para el Frontend)
+  getAssetsByMatrix: async (matrixId: string) => {
+    const { data, error } = await supabase
+      .from('business_assets')
+      // SINTAXIS: alias:columna_original
+      .select(`
+        *,
+        matrix_id:primary_matrix_id,
+        score:total_score,
+        tier:rarity_tier,
+        monetization_link:payhip_link
+      `)
+      .eq('primary_matrix_id', matrixId) 
+      .order('total_score', { ascending: false });
+
+    if (error) {
+      console.error('FATAL: Error fetching assets for matrix', matrixId, error);
+      throw error;
+    }
+    return data;
+  },
+
+  // 2. Obtener Nodos (Pines) por Asset
+  // 2. Obtener Nodos (Pines) por Asset (CORREGIDO - MAPEO DE COLUMNAS)
+  getNodesByAsset: async (sku: string) => {
+    const { data, error } = await supabase
+      .from('pinterest_nodes')
+      .select(`
+        *,
+        impressions:cached_impressions,       
+        saves:cached_pin_clicks,              
+        outbound_clicks:cached_outbound_clicks
+      `)
+      // NOTA: 'saves' se mapea a 'cached_pin_clicks' provisionalmente según disponibilidad del Manifiesto
+      .eq('asset_sku', sku)
+      .order('cached_impressions', { ascending: false }); // IMPORTANTE: Ordenar por la columna REAL de la BD
+
+    if (error) {
+      console.error('FATAL: Error fetching nodes for sku', sku, error);
+      throw error;
+    }
+    return data;
+  },
+
+  // 3. Actualizar Infraestructura (Opción Táctica)
+  updateAssetInfra: async (sku: string, updates: any) => {
+    const { error } = await supabase
+      .from('business_assets')
+      .update(updates)
+      .eq('sku', sku);
+      
+    if (error) throw error;
+  }
+};
