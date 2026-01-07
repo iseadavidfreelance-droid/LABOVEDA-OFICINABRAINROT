@@ -1,86 +1,175 @@
+import React, { useEffect, useState } from 'react';
+import { supabase } from '../../lib/supabase';
+import { 
+  Activity, 
+  Database, 
+  DollarSign, 
+  BarChart3, 
+  Layers,
+  Terminal,
+  Cpu
+} from 'lucide-react';
 
-import React, { useEffect, useState } from "react";
-import { Clock, Activity, Database, Globe } from "lucide-react";
-import StatusIndicator from "../ui/StatusIndicator";
-import { mockService } from "../../lib/supabase";
-import MatrixCommandStrip from "./MatrixCommandStrip";
+// Estética Cyberpunk/Militar definida en tus variables globales
+const STATUS_STYLES = {
+  PROCESSING: 'text-amber-400 drop-shadow-[0_0_8px_rgba(251,191,36,0.5)] animate-pulse',
+  COMPLETED: 'text-emerald-400 drop-shadow-[0_0_8px_rgba(52,211,153,0.5)]',
+  FAILED: 'text-rose-500 drop-shadow-[0_0_8px_rgba(244,63,94,0.5)]',
+  OFFLINE: 'text-zinc-600'
+};
 
-const GlobalHeader: React.FC = () => {
-  const [time, setTime] = useState(new Date());
-  const [heartbeat, setHeartbeat] = useState<{status: string, processed: number}>({ status: 'STANDBY', processed: 0 });
-  const [kpis, setKpis] = useState<{assets: number, nodes: number}>({ assets: 0, nodes: 0 });
+const GlobalHeader = () => {
+  const [stats, setStats] = useState({
+    pinCount: 0,
+    assetCount: 0,
+    totalRevenue: 0,
+    totalTraffic: 0,
+    ingestionStatus: 'OFFLINE',
+    processedItems: 0,
+    loading: true
+  });
 
   useEffect(() => {
-    const timer = setInterval(() => setTime(new Date()), 1000);
+    const fetchHardData = async () => {
+      try {
+        // 1. CONTEO DE PINES (Head count para velocidad)
+        const { count: pinCount } = await supabase
+          .from('pinterest_nodes')
+          .select('*', { count: 'exact', head: true });
+
+        // 2. ACTIVOS Y FINANZAS
+        const { data: assets, count: assetCount } = await supabase
+          .from('business_assets')
+          .select('revenue_score, traffic_score', { count: 'exact' });
+
+        // 3. ESTADO DEL ROBOT (CORRECCIÓN TÉCNICA AQUÍ)
+        // Usamos 'cycle_id' para ordenar porque 'created_at' daba error 400
+        const { data: cycle } = await supabase
+          .from('ingestion_cycles')
+          .select('status, items_processed') 
+          .order('cycle_id', { ascending: false }) // 👈 CAMBIO CRÍTICO
+          .limit(1)
+          .single();
+
+        // CÁLCULOS
+        const totalRevenue = assets?.reduce((sum, item) => sum + (Number(item.revenue_score) || 0), 0) || 0;
+        const totalTraffic = assets?.reduce((sum, item) => sum + (Number(item.traffic_score) || 0), 0) || 0;
+
+        setStats({
+          pinCount: pinCount || 0,
+          assetCount: assetCount || 0,
+          totalRevenue,
+          totalTraffic,
+          ingestionStatus: cycle?.status || 'UNKNOWN',
+          processedItems: cycle?.items_processed || 0,
+          loading: false
+        });
+
+      } catch (err) {
+        console.error("GlobalHeader Telemetry Error:", err);
+      }
+    };
+
+    fetchHardData();
     
-    // Simulating Data Fetching
-    mockService.getSystemHeartbeat().then(data => {
-      setHeartbeat({ status: data.status, processed: data.records_processed });
-    });
+    // Suscripción Realtime
+    const channel = supabase.channel('global_telemetry')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'ingestion_cycles' }, () => fetchHardData())
+      .subscribe();
 
-    mockService.getGlobalKPIs().then(data => {
-      setKpis({ assets: data.total_assets, nodes: data.total_nodes });
-    });
-
-    return () => clearInterval(timer);
+    return () => { supabase.removeChannel(channel); };
   }, []);
 
-  const formatTime = (date: Date, timeZone?: string) => {
-    return date.toLocaleTimeString('en-US', { 
-      timeZone, 
-      hour12: false, 
-      hour: '2-digit', 
-      minute: '2-digit',
-      second: '2-digit' 
-    });
-  };
+  const fmtNum = (n: number) => new Intl.NumberFormat('en-US').format(n);
+  const fmtMoney = (n: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n);
 
   return (
-    <header className="h-16 border-b border-void-border bg-black/90 backdrop-blur-sm flex items-center justify-between px-0 z-10">
+    <header className="h-16 w-full border-b border-white/5 bg-zinc-950/80 backdrop-blur-md flex items-center justify-between px-6 z-50 sticky top-0">
       
-      {/* LEFT: MATRIX COMMAND STRIP */}
-      <div className="h-full">
-         <MatrixCommandStrip />
-      </div>
-
-      {/* CENTER: Clocks & KPIs */}
-      <div className="flex items-center gap-8">
-        <div className="hidden md:flex items-center gap-6">
-            <div className="flex flex-col">
-            <span className="text-[10px] text-gray-500 font-mono uppercase tracking-wider">LOCAL SYSTEM</span>
-            <div className="text-lg font-mono text-white leading-none flex items-center gap-2">
-                <Clock className="w-3 h-3 text-gray-600" />
-                {formatTime(time)}
-            </div>
-            </div>
-            <div className="h-8 w-[1px] bg-void-border"></div>
-            <div className="flex flex-col">
-            <span className="text-[10px] text-tech-green font-mono uppercase tracking-wider">UTC NET</span>
-            <div className="text-lg font-mono text-gray-400 leading-none">
-                {formatTime(time, 'UTC')}
-            </div>
-            </div>
+      {/* SECCIÓN 1: IDENTIDAD TÁCTICA */}
+      <div className="flex items-center gap-4 w-64">
+        <div className="p-2 bg-emerald-500/10 rounded-sm border border-emerald-500/20">
+          <Terminal className="w-5 h-5 text-emerald-500" />
+        </div>
+        <div className="flex flex-col justify-center h-full">
+          <h1 className="font-mono font-bold text-lg text-emerald-100 leading-none tracking-widest">
+            LABOVEDA
+          </h1>
+          <span className="text-[9px] font-mono text-emerald-500/50 uppercase tracking-[0.2em] mt-1">
+            v0.1 Authority Node
+          </span>
         </div>
       </div>
 
-      {/* RIGHT: SYSTEM HEARTBEAT */}
-      <div className="flex items-center gap-4 px-6">
-        <div className="text-right hidden md:block">
-            <div className="text-[10px] text-gray-500 uppercase tracking-widest">INGESTION CYCLE</div>
-            <div className="font-mono text-xs text-tech-green">
-               {heartbeat.processed} RECS PROCESSED
+      {/* SECCIÓN 2: TELEMETRÍA CENTRAL (ESTILO HUD) */}
+      <div className="hidden md:flex flex-1 justify-center items-center gap-12">
+        <StatModule 
+          icon={Layers} 
+          label="TOTAL PINS" 
+          value={fmtNum(stats.pinCount)} 
+        />
+        
+        <div className="w-px h-8 bg-gradient-to-b from-transparent via-white/10 to-transparent" />
+        
+        <StatModule 
+          icon={Database} 
+          label="ASSETS" 
+          value={fmtNum(stats.assetCount)} 
+        />
+        
+        <div className="w-px h-8 bg-gradient-to-b from-transparent via-white/10 to-transparent" />
+        
+        <StatModule 
+          icon={BarChart3} 
+          label="TRAFFIC" 
+          value={fmtNum(stats.totalTraffic)} 
+        />
+        
+        <div className="w-px h-8 bg-gradient-to-b from-transparent via-white/10 to-transparent" />
+        
+        <StatModule 
+          icon={DollarSign} 
+          label="REVENUE" 
+          value={fmtMoney(stats.totalRevenue)} 
+          highlight 
+        />
+      </div>
+
+      {/* SECCIÓN 3: SYSTEM STATUS (ESTILO CYBERPUNK) */}
+      <div className="w-64 flex justify-end items-center">
+        <div className="flex items-center gap-3 pl-6 border-l border-white/5">
+          <div className="flex flex-col items-end">
+            <span className="text-[9px] font-mono text-zinc-500 uppercase tracking-wider mb-0.5">
+              INGESTION CYCLE
+            </span>
+            <div className="flex items-center gap-2">
+              <span className="font-mono text-[10px] text-zinc-400">
+                [{stats.processedItems} RECS]
+              </span>
+              <span className={`font-mono text-xs font-bold ${STATUS_STYLES[stats.ingestionStatus as keyof typeof STATUS_STYLES] || STATUS_STYLES.OFFLINE}`}>
+                {stats.ingestionStatus}
+              </span>
             </div>
-        </div>
-        <div className="border border-void-border bg-void-gray/50 px-3 py-2 flex items-center gap-3">
-            <Activity className="w-4 h-4 text-gray-400" />
-            <StatusIndicator 
-                status={heartbeat.status === 'RUNNING' ? 'processing' : 'standby'} 
-                label={heartbeat.status} 
-            />
+          </div>
+          <Cpu className={`w-5 h-5 ${stats.ingestionStatus === 'PROCESSING' ? 'text-amber-400 animate-spin' : 'text-zinc-700'}`} />
         </div>
       </div>
+
     </header>
   );
 };
+
+// Subcomponente de estilo HUD
+const StatModule = ({ icon: Icon, label, value, highlight = false }: any) => (
+  <div className="flex items-center gap-3 group cursor-default">
+    <Icon className={`w-4 h-4 transition-colors ${highlight ? 'text-emerald-400' : 'text-zinc-600 group-hover:text-zinc-400'}`} />
+    <div className="flex flex-col">
+      <span className="text-[9px] font-mono text-zinc-600 tracking-widest uppercase mb-0.5">{label}</span>
+      <span className={`font-mono font-bold text-sm tracking-tight ${highlight ? 'text-emerald-400 drop-shadow-[0_0_5px_rgba(52,211,153,0.3)]' : 'text-zinc-300'}`}>
+        {value}
+      </span>
+    </div>
+  </div>
+);
 
 export default GlobalHeader;
