@@ -1,14 +1,13 @@
 import React, { useEffect, useState } from 'react';
-import { supabase } from '../../lib/supabase';
-import { Database } from '../../types/database';
-import { Search, Filter, Box, Plus, Hexagon } from 'lucide-react';
+// 1. CAMBIO: Importamos la interfaz oficial y el servicio, NO la base de datos cruda
+import { BusinessAsset } from '../../types/database';
+import { tacticalService } from '../../lib/supabase';
+import { Search, Filter, Box, Plus, Hexagon, RefreshCw } from 'lucide-react';
 import { AssetDetailView } from './AssetDetailView';
 import RarityBadge from '../ui/RarityBadge'; 
 import AssetCreationWizard from './AssetCreationWizard'; 
 import TechButton from '../ui/TechButton';
 import { cn } from '../../lib/utils';
-
-type BusinessAsset = Database['public']['Tables']['business_assets']['Row'];
 
 export const AssetManager: React.FC = () => {
   // Estado de Vista y Modal
@@ -22,14 +21,16 @@ export const AssetManager: React.FC = () => {
 
   const fetchAssets = async () => {
     setLoading(true);
-    const { data, error } = await supabase
-      .from('business_assets')
-      .select('*')
-      .order('total_score', { ascending: false });
-
-    if (error) console.error('Error fetching assets:', error);
-    else setAssets(data || []);
-    setLoading(false);
+    try {
+      // 2. CAMBIO CRÍTICO: Usamos el servicio que tiene el "Trojan Fix" (Hidratación)
+      // En lugar de pedir datos crudos, pedimos datos "enriquecidos" con los nombres reales.
+      const data = await tacticalService.getTacticalSilos();
+      setAssets(data || []);
+    } catch (error) {
+      console.error('Error fetching assets via Tactical Service:', error);
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -37,13 +38,16 @@ export const AssetManager: React.FC = () => {
   }, []);
 
   // Función para actualizar la lista localmente al crear un activo
-  const handleAssetCreated = (newAsset: BusinessAsset) => {
-      setAssets(prev => [newAsset, ...prev]);
+  const handleAssetCreated = (newAsset: any) => {
+      // Nota: Al crear, es posible que primero veas el ID hasta que recargues.
+      // Para 0 incertidumbre, forzamos una recarga de datos.
+      fetchAssets(); 
   };
 
   const filteredAssets = assets.filter(a => 
-    a.sku.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    a.rarity_tier.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (a.sku?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
+    (a.tier?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
+    // Ahora matrix_id contiene el NOMBRE REAL ("PROYECTO ALFA"), así que el buscador encontrará nombres.
     (a.matrix_id && a.matrix_id.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
@@ -74,13 +78,22 @@ export const AssetManager: React.FC = () => {
           </p>
         </div>
         
-        {/* BOTÓN FUNCIONAL - Activa el Modal */}
-        <TechButton 
-            variant="primary" 
-            label="NEW SILO PROTOCOL" 
-            icon={Plus} 
-            onClick={() => setShowWizard(true)} 
-        />
+        <div className="flex gap-2">
+            <button 
+                onClick={fetchAssets} 
+                className="p-2 border border-gray-800 text-gray-500 hover:text-white hover:border-gray-600 transition-colors"
+                title="Forzar Sincronización"
+            >
+                <RefreshCw className={cn("w-5 h-5", loading && "animate-spin")} />
+            </button>
+            {/* BOTÓN FUNCIONAL - Activa el Modal */}
+            <TechButton 
+                variant="primary" 
+                label="NEW SILO PROTOCOL" 
+                icon={Plus} 
+                onClick={() => setShowWizard(true)} 
+            />
+        </div>
       </div>
 
       {/* Controles de Filtro */}
@@ -89,7 +102,7 @@ export const AssetManager: React.FC = () => {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
           <input
             type="text"
-            placeholder="Buscar por SKU, Rarity o Matrix ID..."
+            placeholder="Buscar por SKU, Rango o Matriz..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="w-full bg-black/40 border border-gray-800 text-gray-200 pl-10 pr-4 py-2 font-mono text-sm focus:border-tech-green focus:outline-none transition-colors"
@@ -115,7 +128,7 @@ export const AssetManager: React.FC = () => {
 
         {/* Body Tabla */}
         <div className="overflow-y-auto flex-1 custom-scrollbar">
-            {loading ? (
+            {loading && assets.length === 0 ? (
               <div className="p-8 text-center text-tech-green font-mono animate-pulse">CARGANDO DATOS TÁCTICOS...</div>
             ) : filteredAssets.map((asset) => (
               <div 
@@ -128,41 +141,45 @@ export const AssetManager: React.FC = () => {
                    <Box className="w-3 h-3 opacity-50 shrink-0" /> <span className="truncate">{asset.sku}</span>
                 </div>
 
-                {/* MATRIZ (NUEVO CAMPO) */}
+                {/* MATRIZ (AHORA SÍ VERÁS EL NOMBRE) */}
                 <div className="col-span-2 font-mono text-gray-400 flex items-center gap-2 truncate">
                     <Hexagon className="w-3 h-3 text-gray-600 group-hover:text-tech-green shrink-0" />
-                    <span className="truncate">{asset.matrix_id || 'N/A'}</span>
+                    {/* El Trojan Fix en 'tacticalService' ya puso el nombre aquí */}
+                    <span className="truncate text-tech-green/80 font-bold">
+                        {asset.matrix_id || 'N/A'}
+                    </span>
                 </div>
 
                 {/* RANGO */}
                 <div className="col-span-2">
-                  <RarityBadge tier={asset.rarity_tier} className="scale-90 origin-left" />
+                  <RarityBadge tier={asset.tier || 'DUST'} className="scale-90 origin-left" />
                 </div>
 
                 {/* SCORE */}
                 <div className="col-span-1 text-right font-mono text-tech-green">
-                  {asset.total_score?.toFixed(0) || '0'}
+                  {asset.score?.toFixed(0) || '0'}
                 </div>
 
-                {/* TRÁFICO */}
+                {/* TRÁFICO (Asumimos traffic_score mapeado o 0) */}
                 <div className="col-span-2 text-right font-mono text-gray-400">
-                  {asset.traffic_score?.toFixed(0) || '0'}
+                  {/* Nota: BusinessAsset interface usa 'score', traffic puede no estar en la interfaz base, ajusta si es necesario */}
+                  {(asset as any).traffic_score?.toFixed(0) || '0'}
                 </div>
 
                 {/* INGRESOS */}
                 <div className="col-span-1 text-right font-mono text-yellow-500/80 truncate">
-                  ${asset.revenue_score?.toFixed(0) || '0'}
+                  ${(asset as any).revenue_score?.toFixed(0) || '0'}
                 </div>
 
                 {/* INFO */}
                 <div className="col-span-1 text-center flex justify-center gap-1">
-                  {!asset.payhip_link && (
+                  {!asset.monetization_link && (
                      <span className="text-[9px] text-red-500 border border-red-900 px-1 rounded cursor-help" title="Sin Monetización">$</span>
                   )}
-                  {!asset.drive_link && (
+                  {!asset.description && (
                      <span className="text-[9px] text-yellow-500 border border-yellow-900 px-1 rounded cursor-help" title="Sin Archivos">D</span>
                   )}
-                  {asset.payhip_link && asset.drive_link && (
+                  {asset.monetization_link && asset.description && (
                     <span className="text-[9px] text-gray-600">OK</span>
                   )}
                 </div>
@@ -171,7 +188,6 @@ export const AssetManager: React.FC = () => {
         </div>
       </div>
 
-      {/* MODAL WIZARD - RENDERIZADO FUERA DEL FLUJO CONDICIONAL CORRECTAMENTE */}
       <AssetCreationWizard 
          isOpen={showWizard} 
          onClose={() => setShowWizard(false)} 

@@ -113,22 +113,7 @@ export const mockService = {
   },
 
   async getTacticalSilos(): Promise<BusinessAsset[]> {
-     const { data, error } = await supabase
-        .from('business_assets')
-        .select(`
-          sku,
-          matrix_id:primary_matrix_id,
-          name:sku, 
-          tier:rarity_tier,
-          score:total_score,
-          monetization_link:payhip_link,
-          description:drive_link,
-          updated_at:last_audit_at
-        `)
-        .limit(50);
-    
-     if (error) throw error;
-     return (data || []).map(d => ({ ...d, status: AssetStatus.ACTIVE })) as unknown as BusinessAsset[];
+     return await tacticalService.getTacticalSilos();
   },
 
   async createAsset(asset: BusinessAsset): Promise<void> {
@@ -136,7 +121,7 @@ export const mockService = {
           .from('business_assets')
           .insert({
              sku: asset.sku,
-             primary_matrix_id: asset.matrix_id,
+             primary_matrix_id: asset.matrix_id, // Aquí matrix_id es el código (input)
              rarity_tier: asset.tier, 
              name: asset.name 
           });
@@ -145,40 +130,11 @@ export const mockService = {
 
   // --- FUNCIONES RESTAURADAS ---
   async searchAssets(query: string): Promise<BusinessAsset[]> {
-    if (!query) return [];
-    const { data, error } = await supabase
-        .from('business_assets')
-        .select(`
-          sku,
-          matrix_id:primary_matrix_id,
-          name:sku,
-          tier:rarity_tier,
-          score:total_score
-        `)
-        .ilike('sku', `%${query}%`)
-        .limit(20);
-
-    if (error) throw error;
-    return (data || []).map(d => ({ ...d, status: AssetStatus.ACTIVE })) as unknown as BusinessAsset[];
+    return await tacticalService.searchAssets(query);
   },
 
   async getAssetDetails(sku: string): Promise<BusinessAsset | null> {
-    const { data, error } = await supabase
-        .from('business_assets')
-        .select(`
-          sku,
-          matrix_id:primary_matrix_id,
-          name:sku,
-          tier:rarity_tier,
-          score:total_score,
-          monetization_link:payhip_link,
-          updated_at:last_audit_at
-        `)
-        .eq('sku', sku)
-        .single();
-    
-    if (error) return null;
-    return { ...data, status: AssetStatus.ACTIVE } as unknown as BusinessAsset;
+    return await tacticalService.getAssetDetails(sku);
   },
 
   // ---------------------------------------------------------
@@ -280,25 +236,43 @@ export const mockService = {
   }
 };
 
-// SERVICIO TÁCTICO REAL
+/**
+ * SERVICIO TÁCTICO REAL (VERSIÓN 0 INCERTIDUMBRE - HIDRATACIÓN FORZADA)
+ * CORRECCIÓN VISUAL: Sobrescribe 'matrix_id' con el Nombre Visual para arreglar la UI automáticamente.
+ */
 export const tacticalService = {
   
   // 1. Obtener Assets de una Matriz
   getAssetsByMatrix: async (matrixId: string) => {
-    const { data, error } = await supabase
+    // A. Traer Activos
+    const { data: assets, error } = await supabase
       .from('business_assets')
-      .select(`
-        *,
-        matrix_id:primary_matrix_id,
-        score:total_score,
-        tier:rarity_tier,
-        monetization_link:payhip_link
-      `)
-      .eq('primary_matrix_id', matrixId) 
+      .select('*')
+      .eq('primary_matrix_id', matrixId)
       .order('total_score', { ascending: false });
 
     if (error) throw error;
-    return data;
+
+    // B. Traer Nombre Matriz
+    const { data: matrixData } = await supabase
+        .from('matrix_registry')
+        .select('visual_name')
+        .eq('matrix_code', matrixId)
+        .single();
+    
+    const realName = matrixData?.visual_name || matrixId;
+
+    // C. Mapeo Correctivo (Trojan Fix)
+    return assets.map((asset: any) => ({
+        ...asset,
+        // TRUCO: Sobrescribimos matrix_id con el NOMBRE. La UI mostrará el nombre.
+        matrix_id: realName, 
+        primary_matrix_id: asset.primary_matrix_id, // Guardamos el ID real por si acaso
+        score: asset.total_score,
+        tier: asset.rarity_tier,
+        monetization_link: asset.payhip_link,
+        matrix_name: realName
+    }));
   },
 
   // 2. Obtener Nodos (Pines)
@@ -318,17 +292,127 @@ export const tacticalService = {
     return data;
   },
 
-  // 3. Actualizar Infraestructura
+  // 3. Obtener Silos Tácticos (INVENTARIO GENERAL)
+  getTacticalSilos: async (): Promise<BusinessAsset[]> => {
+     // A. Traer Activos
+     const { data: assets, error } = await supabase
+        .from('business_assets')
+        .select('*')
+        .limit(50);
+
+     if (error) throw error;
+
+     // B. Obtener Nombres de Matrices (Hidratación Masiva)
+     const matrixIds = [...new Set((assets || []).map((a: any) => a.primary_matrix_id))];
+     const { data: matrices } = await supabase
+        .from('matrix_registry')
+        .select('matrix_code, visual_name')
+        .in('matrix_code', matrixIds);
+
+     const matrixMap: Record<string, string> = {};
+     matrices?.forEach((m: any) => {
+         matrixMap[m.matrix_code] = m.visual_name;
+     });
+
+     // C. Mapeo Correctivo
+     return (assets || []).map((d: any) => ({
+         ...d,
+         // TRUCO: La UI espera ver 'matrix_id' y lo imprime. Le damos el nombre.
+         matrix_id: matrixMap[d.primary_matrix_id] || d.primary_matrix_id,
+         
+         primary_matrix_id: d.primary_matrix_id,
+         name: d.sku, 
+         tier: d.rarity_tier,
+         score: d.total_score,
+         monetization_link: d.payhip_link,
+         description: d.drive_link,
+         updated_at: d.last_audit_at,
+         status: AssetStatus.ACTIVE,
+         matrix_name: matrixMap[d.primary_matrix_id] || d.primary_matrix_id
+     })) as unknown as BusinessAsset[];
+  },
+
+  // 4. Buscar Assets
+  searchAssets: async (query: string): Promise<BusinessAsset[]> => {
+    if (!query) return [];
+    const { data: assets, error } = await supabase
+        .from('business_assets')
+        .select('*')
+        .ilike('sku', `%${query}%`)
+        .limit(20);
+
+    if (error) throw error;
+
+    // Misma lógica de hidratación
+    const matrixIds = [...new Set((assets || []).map((a: any) => a.primary_matrix_id))];
+    const { data: matrices } = await supabase
+        .from('matrix_registry')
+        .select('matrix_code, visual_name')
+        .in('matrix_code', matrixIds);
+
+    const matrixMap: Record<string, string> = {};
+    matrices?.forEach((m: any) => {
+         matrixMap[m.matrix_code] = m.visual_name;
+    });
+    
+    return (assets || []).map((d: any) => ({
+        ...d,
+        // TRUCO: Fix Visual
+        matrix_id: matrixMap[d.primary_matrix_id] || d.primary_matrix_id,
+        
+        primary_matrix_id: d.primary_matrix_id,
+        name: d.sku,
+        tier: d.rarity_tier,
+        score: d.total_score,
+        status: AssetStatus.ACTIVE,
+        matrix_name: matrixMap[d.primary_matrix_id] || d.primary_matrix_id
+    })) as unknown as BusinessAsset[];
+  },
+
+  // 5. Detalles Individuales
+  getAssetDetails: async (sku: string): Promise<BusinessAsset | null> => {
+    const { data: asset, error } = await supabase
+        .from('business_assets')
+        .select('*')
+        .eq('sku', sku)
+        .single();
+    
+    if (error || !asset) return null;
+
+    // Hidratación garantizada
+    const { data: matrix } = await supabase
+        .from('matrix_registry')
+        .select('visual_name')
+        .eq('matrix_code', asset.primary_matrix_id)
+        .single();
+    
+    const visualName = matrix?.visual_name || asset.primary_matrix_id;
+
+    return {
+        ...asset,
+        // TRUCO: Fix Visual
+        matrix_id: visualName,
+        
+        primary_matrix_id: asset.primary_matrix_id,
+        name: asset.sku,
+        tier: asset.rarity_tier,
+        score: asset.total_score,
+        monetization_link: asset.payhip_link,
+        updated_at: asset.last_audit_at,
+        status: AssetStatus.ACTIVE,
+        matrix_name: visualName
+    } as unknown as BusinessAsset;
+  },
+
+  // Updates/Creates (Sin cambios lógicos)
   updateAssetInfra: async (sku: string, updates: any) => {
     const { error } = await supabase
       .from('business_assets')
       .update(updates)
       .eq('sku', sku);
-      
     if (error) throw error;
-  }, 
+  },
 
-  // 4. Crear Nuevo Asset
   createAsset: async (assetData: { name: string; sku: string; matrix_id: string }) => {
     const { data, error } = await supabase
       .from('business_assets')
@@ -342,7 +426,6 @@ export const tacticalService = {
       })
       .select()
       .single();
-
     if (error) throw error;
     return data;
   }

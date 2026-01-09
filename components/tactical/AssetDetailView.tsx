@@ -57,10 +57,15 @@ export const AssetDetailView: React.FC<AssetDetailViewProps> = ({ asset, onBack 
                     <RarityBadge tier={asset.tier} />
                 </div>
                 <div className="font-mono text-xs text-gray-500 flex gap-4">
-                    <span>SKU: <span className="text-gray-300">{asset.sku}</span></span>
-                    <span>MATRIX: <span className="text-tech-green">{asset.matrix_id}</span></span>
-                    <span>STATUS: <span className="text-white">{asset.status || 'ACTIVE'}</span></span>
-                </div>
+    <span>SKU: <span className="text-gray-300">{asset.sku}</span></span>
+    
+    {/* ✅ ACTUALIZACIÓN QUIRÚRGICA: Mostramos matrix_name si existe, fallback a matrix_id */}
+    <span>MATRIX: <span className="text-tech-green font-bold">
+        {asset.matrix_name || asset.matrix_id}
+    </span></span>
+    
+    <span>STATUS: <span className="text-white">{asset.status || 'ACTIVE'}</span></span>
+</div>
             </div>
         </div>
         <div className="flex gap-2">

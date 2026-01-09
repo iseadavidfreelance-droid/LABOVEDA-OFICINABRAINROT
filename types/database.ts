@@ -37,6 +37,12 @@ export interface MatrixRegistry {
   efficiency_score: number;   // Mapeado desde 'total_score'
 }
 
+// ... (imports existentes)
+
+// ... (Enums existentes: RarityTier, AssetStatus...)
+
+// ... (Interface MatrixRegistry existente...)
+
 /**
  * Business Asset (Producto) - The core unit of value.
  * PK: SKU (String)
@@ -54,6 +60,12 @@ export interface BusinessAsset {
   updated_at: string;
   last_ingested_at?: string;
   monetization_link?: string; // Mapeado desde 'payhip_link'
+
+  // ✅ INYECCIÓN QUIRÚRGICA 1: Propiedades para la Identidad de Matriz
+  matrix_registry?: {
+      visual_name: string;
+  };
+  matrix_name?: string; // Campo aplanado para la UI
 }
 
 /**
