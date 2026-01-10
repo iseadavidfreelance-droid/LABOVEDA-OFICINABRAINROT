@@ -237,64 +237,13 @@ export const mockService = {
 };
 
 /**
- * SERVICIO TÁCTICO REAL (VERSIÓN 0 INCERTIDUMBRE - HIDRATACIÓN FORZADA)
- * CORRECCIÓN VISUAL: Sobrescribe 'matrix_id' con el Nombre Visual para arreglar la UI automáticamente.
+ * SERVICIO TÁCTICO: PROTOCOLO DE HIDRATACIÓN ESTRICTA (0 INCERTIDUMBRE)
  */
 export const tacticalService = {
-  
-  // 1. Obtener Assets de una Matriz
-  getAssetsByMatrix: async (matrixId: string) => {
-    // A. Traer Activos
-    const { data: assets, error } = await supabase
-      .from('business_assets')
-      .select('*')
-      .eq('primary_matrix_id', matrixId)
-      .order('total_score', { ascending: false });
 
-    if (error) throw error;
-
-    // B. Traer Nombre Matriz
-    const { data: matrixData } = await supabase
-        .from('matrix_registry')
-        .select('visual_name')
-        .eq('matrix_code', matrixId)
-        .single();
-    
-    const realName = matrixData?.visual_name || matrixId;
-
-    // C. Mapeo Correctivo (Trojan Fix)
-    return assets.map((asset: any) => ({
-        ...asset,
-        // TRUCO: Sobrescribimos matrix_id con el NOMBRE. La UI mostrará el nombre.
-        matrix_id: realName, 
-        primary_matrix_id: asset.primary_matrix_id, // Guardamos el ID real por si acaso
-        score: asset.total_score,
-        tier: asset.rarity_tier,
-        monetization_link: asset.payhip_link,
-        matrix_name: realName
-    }));
-  },
-
-  // 2. Obtener Nodos (Pines)
-  getNodesByAsset: async (sku: string) => {
-    const { data, error } = await supabase
-      .from('pinterest_nodes')
-      .select(`
-        *,
-        impressions:cached_impressions,       
-        saves:cached_pin_clicks,              
-        outbound_clicks:cached_outbound_clicks
-      `)
-      .eq('asset_sku', sku)
-      .order('cached_impressions', { ascending: false });
-
-    if (error) throw error;
-    return data;
-  },
-
-  // 3. Obtener Silos Tácticos (INVENTARIO GENERAL)
+  // 1. Obtener Silos Tácticos (INVENTARIO GENERAL)
   getTacticalSilos: async (): Promise<BusinessAsset[]> => {
-     // A. Traer Activos
+     // A. Traer Activos Crudos (La Verdad del Nivel 2)
      const { data: assets, error } = await supabase
         .from('business_assets')
         .select('*')
@@ -302,25 +251,31 @@ export const tacticalService = {
 
      if (error) throw error;
 
-     // B. Obtener Nombres de Matrices (Hidratación Masiva)
+     // B. Recolectar IDs y Consultar la Verdad del Nivel 1 (Matrices)
      const matrixIds = [...new Set((assets || []).map((a: any) => a.primary_matrix_id))];
+     
      const { data: matrices } = await supabase
         .from('matrix_registry')
         .select('matrix_code, visual_name')
         .in('matrix_code', matrixIds);
 
+     // C. Crear Diccionario de Traducción
      const matrixMap: Record<string, string> = {};
      matrices?.forEach((m: any) => {
          matrixMap[m.matrix_code] = m.visual_name;
      });
 
-     // C. Mapeo Correctivo
+     // D. Ensamblaje Final (Sin mentiras)
      return (assets || []).map((d: any) => ({
          ...d,
-         // TRUCO: La UI espera ver 'matrix_id' y lo imprime. Le damos el nombre.
-         matrix_id: matrixMap[d.primary_matrix_id] || d.primary_matrix_id,
-         
+         // DATOS CRUDOS (Para lógica de negocio)
+         matrix_id: d.primary_matrix_id, 
          primary_matrix_id: d.primary_matrix_id,
+         
+         // DATOS VISUALES (Para el observador humano)
+         matrix_name: matrixMap[d.primary_matrix_id] || d.primary_matrix_id, // Si no hay nombre, usa el ID
+         
+         // Mapeos de compatibilidad
          name: d.sku, 
          tier: d.rarity_tier,
          score: d.total_score,
@@ -328,11 +283,10 @@ export const tacticalService = {
          description: d.drive_link,
          updated_at: d.last_audit_at,
          status: AssetStatus.ACTIVE,
-         matrix_name: matrixMap[d.primary_matrix_id] || d.primary_matrix_id
      })) as unknown as BusinessAsset[];
   },
 
-  // 4. Buscar Assets
+  // 2. Buscar Assets
   searchAssets: async (query: string): Promise<BusinessAsset[]> => {
     if (!query) return [];
     const { data: assets, error } = await supabase
@@ -343,7 +297,6 @@ export const tacticalService = {
 
     if (error) throw error;
 
-    // Misma lógica de hidratación
     const matrixIds = [...new Set((assets || []).map((a: any) => a.primary_matrix_id))];
     const { data: matrices } = await supabase
         .from('matrix_registry')
@@ -351,82 +304,89 @@ export const tacticalService = {
         .in('matrix_code', matrixIds);
 
     const matrixMap: Record<string, string> = {};
-    matrices?.forEach((m: any) => {
-         matrixMap[m.matrix_code] = m.visual_name;
-    });
+    matrices?.forEach((m: any) => { matrixMap[m.matrix_code] = m.visual_name; });
     
     return (assets || []).map((d: any) => ({
         ...d,
-        // TRUCO: Fix Visual
-        matrix_id: matrixMap[d.primary_matrix_id] || d.primary_matrix_id,
-        
-        primary_matrix_id: d.primary_matrix_id,
+        matrix_id: d.primary_matrix_id,
+        matrix_name: matrixMap[d.primary_matrix_id] || d.primary_matrix_id,
         name: d.sku,
         tier: d.rarity_tier,
         score: d.total_score,
         status: AssetStatus.ACTIVE,
-        matrix_name: matrixMap[d.primary_matrix_id] || d.primary_matrix_id
     })) as unknown as BusinessAsset[];
   },
 
-  // 5. Detalles Individuales
+  // 3. Detalles Individuales
   getAssetDetails: async (sku: string): Promise<BusinessAsset | null> => {
-    const { data: asset, error } = await supabase
-        .from('business_assets')
-        .select('*')
-        .eq('sku', sku)
-        .single();
-    
+    const { data: asset, error } = await supabase.from('business_assets').select('*').eq('sku', sku).single();
     if (error || !asset) return null;
 
-    // Hidratación garantizada
-    const { data: matrix } = await supabase
-        .from('matrix_registry')
-        .select('visual_name')
-        .eq('matrix_code', asset.primary_matrix_id)
-        .single();
+    const { data: matrix } = await supabase.from('matrix_registry').select('visual_name').eq('matrix_code', asset.primary_matrix_id).single();
     
-    const visualName = matrix?.visual_name || asset.primary_matrix_id;
-
     return {
         ...asset,
-        // TRUCO: Fix Visual
-        matrix_id: visualName,
-        
-        primary_matrix_id: asset.primary_matrix_id,
+        matrix_id: asset.primary_matrix_id,
+        matrix_name: matrix?.visual_name || asset.primary_matrix_id,
         name: asset.sku,
         tier: asset.rarity_tier,
         score: asset.total_score,
         monetization_link: asset.payhip_link,
         updated_at: asset.last_audit_at,
         status: AssetStatus.ACTIVE,
-        matrix_name: visualName
     } as unknown as BusinessAsset;
   },
 
-  // Updates/Creates (Sin cambios lógicos)
-  updateAssetInfra: async (sku: string, updates: any) => {
-    const { error } = await supabase
+  // 4. Obtener Assets de una Matriz (Filtrado)
+  getAssetsByMatrix: async (matrixId: string) => {
+    const { data: assets, error } = await supabase
       .from('business_assets')
-      .update(updates)
-      .eq('sku', sku);
+      .select('*')
+      .eq('primary_matrix_id', matrixId)
+      .order('total_score', { ascending: false });
+
     if (error) throw error;
+
+    const { data: matrixData } = await supabase
+        .from('matrix_registry')
+        .select('visual_name')
+        .eq('matrix_code', matrixId)
+        .single();
+    
+    const realName = matrixData?.visual_name || matrixId;
+
+    return assets.map((asset: any) => ({
+        ...asset,
+        matrix_id: asset.primary_matrix_id,
+        primary_matrix_id: asset.primary_matrix_id,
+        score: asset.total_score,
+        tier: asset.rarity_tier,
+        monetization_link: asset.payhip_link,
+        matrix_name: realName
+    }));
   },
 
-  createAsset: async (assetData: { name: string; sku: string; matrix_id: string }) => {
+  // ... (Funciones de soporte)
+  getNodesByAsset: async (sku: string) => {
     const { data, error } = await supabase
-      .from('business_assets')
-      .insert({
-        sku: assetData.sku,
-        primary_matrix_id: assetData.matrix_id,
-        rarity_tier: 'DUST',
-        total_score: 0,
-        traffic_score: 0,
-        revenue_score: 0
-      })
-      .select()
-      .single();
+      .from('pinterest_nodes')
+      .select('*, impressions:cached_impressions, saves:cached_pin_clicks, outbound_clicks:cached_outbound_clicks')
+      .eq('asset_sku', sku)
+      .order('cached_impressions', { ascending: false });
     if (error) throw error;
     return data;
+  },
+  
+  createAsset: async (assetData: { name: string; sku: string; matrix_id: string }) => {
+    const { data, error } = await supabase.from('business_assets')
+      .insert({ sku: assetData.sku, primary_matrix_id: assetData.matrix_id, rarity_tier: 'DUST', total_score: 0, traffic_score: 0, revenue_score: 0 })
+      .select().single();
+    if (error) throw error;
+    return data;
+  },
+
+  updateAssetInfra: async (sku: string, updates: any) => {
+    const { error } = await supabase.from('business_assets').update(updates).eq('sku', sku);
+    if (error) throw error;
   }
 };
