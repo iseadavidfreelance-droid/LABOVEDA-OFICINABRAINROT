@@ -1,5 +1,17 @@
 import React, { useEffect, useState } from "react";
-import { ShieldAlert, Radar, Zap, Layers, Skull, Trash2, LayoutDashboard, Database, Activity, Hexagon, Box } from "lucide-react";
+import { 
+  ShieldAlert, 
+  Radar, 
+  Zap, 
+  Layers, 
+  Skull, 
+  Trash2, 
+  Database, 
+  Activity, 
+  Hexagon, 
+  Box,
+  Globe // <--- NUEVO ICONO
+} from "lucide-react";
 import { cn } from "../../lib/utils";
 import { mockService } from "../../lib/supabase";
 
@@ -65,15 +77,18 @@ const SideNav: React.FC<SideNavProps> = ({ currentView, onNavigate }) => {
   });
 
   useEffect(() => {
+    // Si mockService falla, esto no romperá la app
     mockService.getViewCounts().then(data => {
-      setCounts({
-        hemorragia: data.radar_monetization_ready,
-        infra: data.radar_infrastructure_gap,
-        ghosts: data.radar_ghost_assets,
-        void: data.radar_the_void,
-        dust: data.radar_dust_cleaner
-      });
-    });
+      if (data) {
+        setCounts({
+          hemorragia: data.radar_monetization_ready || 0,
+          infra: data.radar_infrastructure_gap || 0,
+          ghosts: data.radar_ghost_assets || 0,
+          void: data.radar_the_void || 0,
+          dust: data.radar_dust_cleaner || 0
+        });
+      }
+    }).catch(e => console.error("Nav Error", e));
   }, []);
 
   return (
@@ -152,7 +167,7 @@ const SideNav: React.FC<SideNavProps> = ({ currentView, onNavigate }) => {
         <SectionTitle>03 // Estratégico (Command)</SectionTitle>
         <NavItem 
           label="Comando Central" 
-          icon={LayoutDashboard} 
+          icon={Globe} 
           shortcut="ALT+3"
           active={currentView === 'dashboard'}
           onClick={() => onNavigate('dashboard')}
