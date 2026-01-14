@@ -1,163 +1,357 @@
 import React, { useEffect, useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { PinterestNode, BusinessAsset } from '../../types/database';
-import { mockService } from '../../lib/supabase';
-import { Layers, Database, Trash2, Plus, CheckCircle, ExternalLink } from 'lucide-react';
-import RarityBadge from '../ui/RarityBadge';
-import GlitchToast from '../ui/GlitchToast';
-import ImageWithFallback from '../ui/ImageWithFallback';
-import AssetCreationWizard from './AssetCreationWizard'; // <-- CONEXIÓN WIZARD
+import { RefreshCw, Search, AlertTriangle, PlusCircle, Database, LayoutGrid, Fingerprint, Type, Save, Grid } from 'lucide-react';
+import { PinterestNode, Matrix } from '../../types/database';
+import { tacticalService } from '../../lib/supabase';
+import TechButton from '../ui/TechButton';
 import { cn } from '../../lib/utils';
-import { useLog } from '../../context/LogContext';
+import StatusIndicator from '../ui/StatusIndicator';
 
-const VoidTerminal: React.FC = () => {
-  const [nodes, setNodes] = useState<PinterestNode[]>([]);
-  const [silos, setSilos] = useState<BusinessAsset[]>([]);
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [lastSelectedId, setLastSelectedId] = useState<string | null>(null);
-  const { addLog } = useLog();
-  const MotionDiv = motion.div as any;
+export default function VoidTerminal() {
+  // Estados de Datos
+  const [orphans, setOrphans] = useState<PinterestNode[]>([]);
+  const [matrices, setMatrices] = useState<Matrix[]>([]); 
+  const [loading, setLoading] = useState(true);
   
-  const [isDragging, setIsDragging] = useState(false);
-  const [dragOverSilo, setDragOverSilo] = useState<string | null>(null);
-  const [isOverTrash, setIsOverTrash] = useState(false);
-  const [isWizardOpen, setIsWizardOpen] = useState(false); // Estado simple para el Wizard
+  // Estados de Interfaz
+  const [isScanning, setIsScanning] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+
+  // --- ESTADOS DEL MODAL DE ASCENSO ---
+  const [promotionTarget, setPromotionTarget] = useState<PinterestNode | null>(null);
+  const [promoMatrixId, setPromoMatrixId] = useState('');
+  const [promoSku, setPromoSku] = useState('');
+  const [promoName, setPromoName] = useState(''); // Visual only
+  const [isPromoting, setIsPromoting] = useState(false);
+  const [loadingIdentity, setLoadingIdentity] = useState(false);
+
+  // --- NUEVO: ESTADOS PARA CREACIÓN DE MATRIZ IN-SITU ---
+  const [showMatrixCreator, setShowMatrixCreator] = useState(false);
+  const [newMatrixCode, setNewMatrixCode] = useState('');
+  const [newMatrixName, setNewMatrixName] = useState('');
+  const [newMatrixType, setNewMatrixType] = useState('PRIMARY');
+
+  // 1. Carga Inicial de Inteligencia
+  const scanVoid = async () => {
+    setIsScanning(true);
+    try {
+      const data = await tacticalService.getOrphanNodes(50);
+      setOrphans(data || []);
+      const matrixData = await tacticalService.getMatrices();
+      setMatrices(matrixData || []);
+    } catch (e) {
+      console.error("Void scan failed", e);
+    } finally {
+      setIsScanning(false);
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    loadData();
-    addLog("VOID PROTOCOL INITIATED...", "info");
+    scanVoid();
   }, []);
 
-  const loadData = async () => {
-    try {
-        const [orphanNodes, activeAssets] = await Promise.all([
-        mockService.getOrphanedNodes(),
-        mockService.getTacticalSilos()
-        ]);
-        setNodes(orphanNodes);
-        setSilos(activeAssets);
-    } catch (e) {
-        addLog("FATAL ERROR LOADING SECTOR DATA", "error");
-    }
+  // 2. Preparar el Ascenso (Abrir Modal)
+  const handleOpenPromotion = (node: PinterestNode) => {
+    setPromotionTarget(node);
+    setPromoMatrixId('');
+    setPromoSku('PENDING_MATRIX_SELECTION');
+    setPromoName('PENDING_MATRIX_SELECTION');
+    setShowMatrixCreator(false); // Resetear estado de creador
   };
 
-  const handleNodeClick = (id: string, shiftKey: boolean) => {
-    const newSelection = new Set(selectedIds);
-    if (shiftKey && lastSelectedId) {
-      const indexA = nodes.findIndex(n => n.id === lastSelectedId);
-      const indexB = nodes.findIndex(n => n.id === id);
-      const start = Math.min(indexA, indexB);
-      const end = Math.max(indexA, indexB);
-      for (let i = start; i <= end; i++) {
-        if(nodes[i]?.id) newSelection.add(nodes[i].id);
+  // 3. Generar Identidad Automática al seleccionar Matriz
+  const handleMatrixSelect = async (matrixId: string) => {
+      setPromoMatrixId(matrixId);
+      if(!matrixId) return;
+
+      setLoadingIdentity(true);
+      try {
+          // LLAMADA AL CEREBRO CENTRAL PARA OBTENER SKU OFICIAL
+          const identity = await tacticalService.generateNextAssetIdentity(matrixId);
+          setPromoSku(identity.sku);
+          setPromoName(identity.name);
+      } catch (e) {
+          console.error("Identity generation error", e);
+          setPromoSku("ERROR-GEN-SKU");
+      } finally {
+          setLoadingIdentity(false);
       }
-    } else {
-      if (newSelection.has(id)) newSelection.delete(id);
-      else newSelection.add(id);
-      setLastSelectedId(id);
+  };
+
+  // 4. Crear Nueva Matriz (Field Commission)
+  const handleCreateMatrix = async () => {
+      if (!newMatrixCode || !newMatrixName) return;
+      try {
+          await tacticalService.createMatrix({
+              code: newMatrixCode.toUpperCase(),
+              name: newMatrixName,
+              type: newMatrixType
+          });
+          // Recargar matrices y auto-seleccionar la nueva
+          const matrixData = await tacticalService.getMatrices();
+          setMatrices(matrixData || []);
+          
+          // Switch back to asset creation
+          setShowMatrixCreator(false);
+          handleMatrixSelect(newMatrixCode.toUpperCase());
+          
+      } catch (e) {
+          console.error("Matrix creation failed", e);
+          alert("ERROR: MATRIZ DUPLICADA O INVÁLIDA");
+      }
+  };
+
+  // 5. Ejecutar el Ascenso (Guardar en BD)
+  const executePromotion = async () => {
+    if (!promotionTarget || !promoMatrixId || !promoSku) return;
+
+    setIsPromoting(true);
+    try {
+        await tacticalService.promoteSignalToAsset(
+            promotionTarget,
+            promoMatrixId,
+            promoSku
+        );
+        
+        setPromotionTarget(null);
+        await scanVoid(); 
+    } catch (e) {
+        console.error("Promotion failed", e);
+        alert("FALLO EN CREACIÓN DE ASSET. REVISAR CONSOLA.");
+    } finally {
+        setIsPromoting(false);
     }
-    setSelectedIds(newSelection);
   };
 
-  const handleDragStart = (e: React.DragEvent, id: string) => {
-    let idsToDrag = Array.from(selectedIds);
-    if (!selectedIds.has(id)) {
-       idsToDrag = [id];
-       setSelectedIds(new Set([id]));
-    }
-    e.dataTransfer.setData('application/json', JSON.stringify(idsToDrag));
-    e.dataTransfer.effectAllowed = 'move';
-    setIsDragging(true);
-  };
-
-  const handleDragEnd = () => {
-    setIsDragging(false);
-    setDragOverSilo(null);
-    setIsOverTrash(false);
-  };
-
-  const handleDropOnSilo = async (e: React.DragEvent, sku: string) => {
-    e.preventDefault();
-    const data = e.dataTransfer.getData('application/json');
-    if (!data) return;
-    const ids: string[] = JSON.parse(data);
-    setNodes(prev => prev.filter(n => !ids.includes(n.id)));
-    setSelectedIds(new Set());
-    addLog(`> ASSIGNING ${ids.length} NODES TO SILO [${sku}]`, 'success');
-    try { await mockService.assignNodesToAsset(ids, sku); } 
-    catch (err) { addLog(`! ERROR SYNCING TO ${sku}`, 'error'); }
-    setDragOverSilo(null);
-  };
-
-  const handleDropOnTrash = async (e: React.DragEvent) => {
-    e.preventDefault();
-    const data = e.dataTransfer.getData('application/json');
-    if (!data) return;
-    const ids: string[] = JSON.parse(data);
-    setNodes(prev => prev.filter(n => !ids.includes(n.id)));
-    setSelectedIds(new Set());
-    addLog(`> INCINERATED ${ids.length} DATA FRAGMENTS`, 'warning');
-    await mockService.incinerateNodes(ids);
-    setIsOverTrash(false);
-  };
+  const filteredOrphans = orphans.filter(n => 
+    (n.title?.toLowerCase().includes(searchQuery.toLowerCase()) || 
+    n.pin_id.includes(searchQuery))
+  );
 
   return (
-    <div className="h-full flex flex-col bg-void-black text-[#E5E5E5] font-mono overflow-hidden relative">
-      <header className="flex-none h-16 border-b border-void-border flex items-center justify-between px-6 bg-void-black z-10">
+    <div className="h-full flex flex-col p-6 animate-in fade-in duration-500 relative">
+      
+      {/* HEADER */}
+      <div className="flex justify-between items-end mb-8">
         <div>
-          <h2 className="text-2xl font-bold tracking-widest text-white uppercase flex items-center gap-2"><Layers className="text-tech-green w-6 h-6" />Módulo Táctico <span className="text-gray-600 text-sm">v2.0</span></h2>
-          <div className="flex gap-4 text-[10px] text-gray-500 mt-1"><span>FRAGMENTS: {nodes.length}</span><span>SELECTED: {selectedIds.size}</span></div>
+          <h2 className="text-3xl font-black text-white tracking-tighter flex items-center gap-3">
+            <AlertTriangle className="w-8 h-8 text-void-red animate-pulse" />
+            THE VOID
+          </h2>
+          {/* CORRECCIÓN DE DOM NESTING: div en lugar de p */}
+          <div className="text-gray-500 font-mono mt-2 flex items-center gap-2">
+             <StatusIndicator status="active" />
+             <p>SEÑALES NO IDENTIFICADAS: <span className="text-white font-bold">{orphans.length}</span></p>
+          </div>
         </div>
-        <div className="flex gap-2"><div className="text-right"><div className="text-[10px] text-gray-500">OPERATIONAL MODE</div><div className="text-xs text-tech-green font-bold animate-pulse">DRAG_AND_DROP_ACTIVE</div></div></div>
-      </header>
-      <div className="flex-1 flex overflow-hidden">
-        <div className="flex-1 border-r border-void-border bg-void-gray/5 relative flex flex-col">
-           <div className="p-2 border-b border-void-border bg-black/50 backdrop-blur-sm text-[10px] text-gray-500 tracking-widest uppercase flex justify-between"><span>Unassigned Data Cloud</span><span>[SHIFT+CLICK] MULTI-SELECT</span></div>
-           <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-                 <AnimatePresence>
-                  {nodes.filter(node => node.id && node.id !== "").map((node) => {
-                      const isSelected = selectedIds.has(node.id);
-                      return (
-                        <MotionDiv key={node.id} layout initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0 }} draggable onDragStart={(e: React.DragEvent) => handleDragStart(e, node.id)} onDragEnd={handleDragEnd} onClick={(e: React.MouseEvent) => handleNodeClick(node.id, e.shiftKey)} className={cn("relative group cursor-move select-none border transition-all duration-200 aspect-[3/4] flex flex-col", isSelected ? "border-tech-green bg-tech-green/10 shadow-[0_0_10px_rgba(0,255,65,0.2)]" : "border-void-border bg-black hover:border-gray-500")}>
-                           <div className="flex-1 overflow-hidden relative">
-                              <ImageWithFallback src={node.image_url} alt={node.pin_id} className="w-full h-full object-cover"/>
-                              <div className="absolute top-1 right-1 z-20">{isSelected && <CheckCircle className="w-4 h-4 text-tech-green bg-black rounded-full" />}</div>
-                              <a href={node.url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="absolute bottom-1 right-1 p-1 bg-black/50 hover:bg-tech-green hover:text-black rounded text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity z-20"><ExternalLink className="w-3 h-3" /></a>
-                           </div>
-                           <div className="p-2 border-t border-void-border bg-black/80"><div className="text-[9px] text-gray-500 font-mono truncate">{node.pin_id}</div><div className="flex justify-between items-center mt-1"><span className="text-[10px] text-gray-300 font-bold">{node.impressions < 1000 ? node.impressions : (node.impressions/1000).toFixed(1) + 'k'} IMP</span></div></div>
-                        </MotionDiv>
-                      );
-                    })}
-                 </AnimatePresence>
-                 {nodes.length === 0 && (<div className="col-span-full flex flex-col items-center justify-center h-64 text-gray-600 font-mono opacity-50"><Database className="w-12 h-12 mb-4" /><p>SECTOR CLEAR</p></div>)}
-              </div>
-           </div>
-        </div>
-        <div className="w-96 flex flex-col bg-void-black border-l border-void-border z-20 shadow-2xl">
-           <div className="flex-none p-2 border-b border-void-border bg-black flex items-center justify-between"><span className="text-[10px] text-gray-500 tracking-widest uppercase">Target Silos (Drop Zone)</span><button onClick={() => setIsWizardOpen(true)} className="flex items-center gap-1 text-[10px] bg-void-gray hover:bg-white hover:text-black px-2 py-1 transition-colors border border-void-border text-tech-green"><Plus className="w-3 h-3" /> NEW SILO</button></div>
-           <div className="flex-1 flex flex-col border-b border-void-border overflow-hidden">
-              <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
-                <AnimatePresence>
-                {silos.filter(silo => silo.sku && silo.sku !== "").map(silo => (
-                    <MotionDiv key={silo.sku} initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} onDragOver={(e: React.DragEvent) => { e.preventDefault(); setDragOverSilo(silo.sku); }} onDragLeave={() => setDragOverSilo(null)} onDrop={(e: React.DragEvent) => handleDropOnSilo(e, silo.sku)} className={cn("p-4 border transition-all duration-300 relative overflow-hidden group", dragOverSilo === silo.sku ? "border-tech-green bg-tech-green/10 scale-105 shadow-[0_0_20px_rgba(0,255,65,0.3)] z-10" : "border-void-border bg-void-gray/20 hover:border-gray-600")}>
-                       <div className="flex justify-between items-start mb-2 relative z-10"><h3 className="text-sm font-bold text-white font-sans">{silo.name}</h3><RarityBadge tier={silo.tier} className="scale-75 origin-top-right" /></div>
-                       <div className="text-[10px] font-mono text-gray-500 relative z-10">SKU: {silo.sku}</div>
-                       {dragOverSilo === silo.sku && (<div className="absolute inset-0 flex items-center justify-center bg-black/60 backdrop-blur-sm z-20"><span className="text-tech-green font-bold tracking-widest animate-pulse">INITIATE UPLOAD</span></div>)}
-                    </MotionDiv>
-                 ))}
-                 </AnimatePresence>
-              </div>
-           </div>
-           <div className={cn("h-32 border-t border-void-border transition-all duration-300 flex flex-col items-center justify-center relative overflow-hidden", isOverTrash ? "bg-red-900/20 border-red-500" : "bg-black")} onDragOver={(e) => { e.preventDefault(); setIsOverTrash(true); }} onDragLeave={() => setIsOverTrash(false)} onDrop={handleDropOnTrash}>
-              <Trash2 className={cn("w-8 h-8 mb-2 transition-colors", isOverTrash ? "text-red-500 animate-bounce" : "text-gray-700")} />
-              <span className={cn("text-xs font-mono tracking-widest uppercase", isOverTrash ? "text-red-500" : "text-gray-700")}>{isOverTrash ? "RELEASE TO PURGE" : "INCINERATOR"}</span>
-              {isOverTrash && (<div className="absolute inset-0 bg-red-500/10 pointer-events-none animate-pulse" />)}
-           </div>
+        <div className="flex gap-4">
+            <div className="relative group">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 group-focus-within:text-tech-green transition-colors" />
+                <input 
+                    type="text" 
+                    placeholder="BUSCAR SEÑAL ID..." 
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="bg-black/50 border border-void-border pl-10 pr-4 py-2 text-sm font-mono text-white focus:border-tech-green focus:outline-none w-64 transition-all"
+                />
+            </div>
+            <TechButton 
+                label={isScanning ? "SCANNING..." : "RE-SCAN SECTOR"} 
+                icon={RefreshCw} 
+                onClick={scanVoid} 
+                variant="ghost"
+            />
         </div>
       </div>
-      <AssetCreationWizard isOpen={isWizardOpen} onClose={() => setIsWizardOpen(false)} onSuccess={(newAsset) => { setSilos(prev => [newAsset, ...prev]); addLog(`NEW SILO ESTABLISHED: ${newAsset.sku}`, "success"); }} />
+
+      {/* GRID */}
+      <div className="flex-1 overflow-y-auto custom-scrollbar pr-2">
+        {loading ? (
+           <div className="h-full flex items-center justify-center text-tech-green font-mono animate-pulse">
+               INITIALIZING VOID SENSORS...
+           </div>
+        ) : filteredOrphans.length === 0 ? (
+            <div className="h-full flex flex-col items-center justify-center border border-dashed border-void-border bg-void-gray/5 rounded-lg">
+                <p className="text-gray-500 font-mono">SECTOR LIMPIO. NO HAY SEÑALES HUÉRFANAS.</p>
+            </div>
+        ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                {filteredOrphans.map((node) => (
+                    <div key={node.pin_id} className="group relative bg-black border border-void-border hover:border-void-red transition-all duration-300 flex flex-col">
+                        <div className="p-3 border-b border-void-border bg-void-gray/5 flex justify-between items-center">
+                            <span className="font-mono text-[10px] text-void-red font-bold">UNIDENTIFIED</span>
+                            <span className="font-mono text-[10px] text-gray-600">{node.pin_id}</span>
+                        </div>
+                        <div className="flex-1 flex row p-4 gap-4">
+                             <div className="w-1/3 aspect-[2/3] bg-gray-900 relative overflow-hidden border border-gray-800">
+                                <img src={node.image_url} className="object-cover w-full h-full opacity-60 group-hover:opacity-100 transition-opacity" />
+                             </div>
+                             <div className="flex-1 flex flex-col justify-between py-1">
+                                <div>
+                                    <h4 className="text-white text-sm font-bold leading-tight line-clamp-2 mb-2" title={node.title || ''}>
+                                        {node.title || 'NO TITLE DATA'}
+                                    </h4>
+                                    <div className="flex flex-col gap-1">
+                                        <MetricRow label="IMP" value={node.impressions} />
+                                        <MetricRow label="CLK" value={node.outbound_clicks} highlight />
+                                    </div>
+                                </div>
+                                <button 
+                                    onClick={() => handleOpenPromotion(node)}
+                                    className="mt-3 w-full py-2 bg-void-red/10 border border-void-red/30 text-void-red hover:bg-void-red hover:text-black hover:font-bold transition-all text-[10px] font-mono flex items-center justify-center gap-2"
+                                >
+                                    <PlusCircle className="w-3 h-3" />
+                                    CREAR ASSET
+                                </button>
+                             </div>
+                        </div>
+                    </div>
+                ))}
+            </div>
+        )}
+      </div>
+
+      {/* --- MODAL: FIELD PROMOTION --- */}
+      {promotionTarget && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-sm animate-in fade-in duration-200">
+            <div className="w-full max-w-2xl bg-[#0a0a0a] border border-void-red/50 shadow-[0_0_50px_rgba(255,0,0,0.1)] relative flex flex-col overflow-hidden animate-in zoom-in-95">
+                
+                <div className="p-6 border-b border-void-border bg-void-red/5 flex justify-between items-center">
+                    <div>
+                        <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                            <Database className="w-5 h-5 text-void-red" />
+                            FIELD PROMOTION PROTOCOL
+                        </h3>
+                        <p className="text-xs font-mono text-void-red/70 mt-1">CONVIRTIENDO SEÑAL EN ACTIVO DE NEGOCIO</p>
+                    </div>
+                </div>
+
+                <div className="p-8 flex gap-8">
+                    {/* Fuente */}
+                    <div className="w-1/3 flex flex-col gap-2">
+                        <label className="text-[10px] font-mono text-gray-500 uppercase">SIGNAL SOURCE</label>
+                        <div className="aspect-[2/3] w-full border border-gray-800 relative">
+                            <img src={promotionTarget.image_url} className="w-full h-full object-cover" />
+                            <div className="absolute bottom-0 inset-x-0 bg-black/80 p-2 text-center">
+                                <span className="text-[10px] font-mono text-gray-400">{promotionTarget.pin_id}</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Formulario */}
+                    <div className="flex-1 space-y-6">
+                        
+                        {/* SWITCH DE MODO: SELECCIONAR vs CREAR MATRIZ */}
+                        {!showMatrixCreator ? (
+                            <>
+                                <div className="space-y-2">
+                                    <div className="flex justify-between items-center">
+                                        <label className="text-xs font-mono text-tech-green flex items-center gap-2">
+                                            <LayoutGrid className="w-3 h-3" /> ASIGNAR A MATRIZ
+                                        </label>
+                                        <button 
+                                            onClick={() => setShowMatrixCreator(true)}
+                                            className="text-[10px] text-void-red hover:underline font-mono flex items-center gap-1"
+                                        >
+                                            <PlusCircle className="w-3 h-3" /> NUEVA MATRIZ
+                                        </button>
+                                    </div>
+                                    <select 
+                                        value={promoMatrixId}
+                                        onChange={(e) => handleMatrixSelect(e.target.value)}
+                                        className="w-full bg-black border border-gray-700 text-white p-3 text-sm font-mono focus:border-tech-green focus:outline-none transition-colors"
+                                    >
+                                        <option value="">-- SELECCIONAR MATRIZ --</option>
+                                        {matrices.map(m => (
+                                            <option key={m.matrix_code} value={m.matrix_code}>
+                                                [{m.matrix_code}] {m.name}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                {/* PREVIEW DE IDENTIDAD GENERADA */}
+                                <div className="p-4 bg-void-gray/10 border border-void-border rounded space-y-3">
+                                    <label className="text-[10px] font-mono text-gray-500 uppercase">IDENTIDAD GENERADA (AUTO)</label>
+                                    
+                                    {loadingIdentity ? (
+                                        <div className="text-tech-green font-mono text-xs animate-pulse">CALCULATING SEQUENCE...</div>
+                                    ) : (
+                                        <>
+                                            <div className="flex items-center gap-2">
+                                                <Fingerprint className="w-4 h-4 text-gray-600" />
+                                                <span className="text-xl font-bold font-mono text-tech-green">{promoSku}</span>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <Type className="w-4 h-4 text-gray-600" />
+                                                <span className="text-sm font-mono text-gray-300">{promoName}</span>
+                                            </div>
+                                        </>
+                                    )}
+                                </div>
+                            </>
+                        ) : (
+                            // MODO CREACIÓN DE MATRIZ
+                            <div className="bg-void-red/5 border border-void-red/30 p-4 space-y-4 animate-in fade-in slide-in-from-right">
+                                <div className="flex justify-between items-center mb-2">
+                                    <h4 className="text-void-red font-bold font-mono text-sm flex items-center gap-2">
+                                        <Grid className="w-4 h-4" /> CREAR MATRIZ
+                                    </h4>
+                                    <button onClick={() => setShowMatrixCreator(false)} className="text-[10px] text-gray-500 hover:text-white">CANCELAR</button>
+                                </div>
+                                <input 
+                                    type="text" placeholder="CÓDIGO (EJ: CYBER)" 
+                                    value={newMatrixCode} onChange={e => setNewMatrixCode(e.target.value.toUpperCase())}
+                                    className="w-full bg-black border border-void-red/30 text-white p-2 text-xs font-mono focus:border-void-red"
+                                />
+                                <input 
+                                    type="text" placeholder="NOMBRE VISUAL (EJ: Cyber Goth)" 
+                                    value={newMatrixName} onChange={e => setNewMatrixName(e.target.value)}
+                                    className="w-full bg-black border border-void-red/30 text-white p-2 text-xs font-mono focus:border-void-red"
+                                />
+                                <TechButton 
+                                    label="INICIALIZAR MATRIZ" 
+                                    onClick={handleCreateMatrix} 
+                                    variant="primary" 
+                                    fullWidth
+                                    disabled={!newMatrixCode || !newMatrixName}
+                                />
+                            </div>
+                        )}
+
+                    </div>
+                </div>
+
+                <div className="p-6 border-t border-void-border bg-black/50 flex justify-end gap-4">
+                    <TechButton 
+                        variant="ghost" 
+                        label="ABORTAR" 
+                        onClick={() => setPromotionTarget(null)} 
+                    />
+                    {!showMatrixCreator && (
+                        <TechButton 
+                            variant="primary" 
+                            label={isPromoting ? "PROCESANDO..." : "CONFIRMAR ASCENSO"} 
+                            icon={Save}
+                            disabled={!promoMatrixId || !promoSku || isPromoting || loadingIdentity}
+                            onClick={executePromotion}
+                        />
+                    )}
+                </div>
+
+            </div>
+        </div>
+      )}
+
     </div>
   );
-};
-export default VoidTerminal;
+}
+
+const MetricRow = ({ label, value, highlight }: { label: string, value: number, highlight?: boolean }) => (
+    <div className="flex justify-between items-center text-[10px] font-mono border-b border-gray-900 pb-0.5">
+        <span className="text-gray-600">{label}</span>
+        <span className={cn(highlight ? "text-tech-green" : "text-gray-400")}>
+            {value >= 1000 ? (value/1000).toFixed(1) + 'k' : value}
+        </span>
+    </div>
+);
