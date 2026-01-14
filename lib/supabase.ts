@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import { PinterestNode, BusinessAsset, RarityTier, RadarMonetizationReady, RadarInfrastructureGap, ViewEliteAnalytics, RadarConversionAlert, AssetStatus, MatrixRegistry, RadarGhostAssets, RadarDustCleaner, RadarTheVoid } from '../types/database';
+import { PinterestNode, BusinessAsset, AssetStatus, MatrixRegistry, RadarConversionAlert } from '../types/database';
 
 // ENVIRONMENT VARIABLES
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || '';
@@ -11,6 +11,33 @@ if (!SUPABASE_URL || !SUPABASE_KEY) {
 
 // REAL CLIENT
 export const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+
+/**
+ * --- MOTOR MATEMÁTICO TÁCTICO (CLIENT-SIDE JUDGE) ---
+ * Pesos ajustados para dar valor real inmediato.
+ */
+const SCORING_WEIGHTS = {
+    IMPRESSION: 0.01,   // Visibilidad
+    CLICK: 1.5,         // Tráfico (Intención)
+    SAVE: 2.0,          // Deseo (Viralidad potencial)
+    REVENUE_DOLLAR: 10.0 // Valor del dinero real
+};
+
+const calculateTacticalScore = (impressions: number, clicks: number, saves: number, revenue: number = 0): number => {
+    const score = (impressions * SCORING_WEIGHTS.IMPRESSION) + 
+                  (clicks * SCORING_WEIGHTS.CLICK) + 
+                  (saves * SCORING_WEIGHTS.SAVE) +
+                  (revenue * SCORING_WEIGHTS.REVENUE_DOLLAR);
+    return Math.round(score * 100) / 100;
+};
+
+const determineRarityTier = (score: number): string => {
+    if (score >= 1000) return 'LEGENDARY';
+    if (score >= 500) return 'RARE';
+    if (score >= 200) return 'UNCOMMON';
+    if (score >= 50) return 'COMMON';
+    return 'DUST';
+};
 
 /**
  * SERVICIO TÁCTICO UNIFICADO (0 INCERTIDUMBRE)
@@ -29,18 +56,22 @@ export const tacticalService = {
         type,
         total_assets_count:asset_count,
         efficiency_score:total_score,
+        total_traffic_score,
+        total_revenue_score,
         matrix_code,
         asset_count,
         total_score
       `)
-      .order('matrix_code', { ascending: true });
+      .order('total_score', { ascending: false });
     
     if (error) throw error;
     
     return (data || []).map((m: any) => ({
       ...m,
       matrix_code: m.code || m.matrix_code,
-      total_score: m.efficiency_score || m.total_score,
+      total_score: m.efficiency_score || m.total_score || 0,
+      total_traffic_score: m.total_traffic_score || 0,
+      total_revenue_score: m.total_revenue_score || 0,
       name: m.visual_name || m.code 
     })) as MatrixRegistry[];
   },
@@ -52,14 +83,49 @@ export const tacticalService = {
         matrix_code: matrix.code,
         visual_name: matrix.name, 
         type: matrix.type,
+        total_score: 0,
+        total_traffic_score: 0,
+        total_revenue_score: 0,
+        asset_count: 0
       });
     
     if (error) throw error;
   },
 
-  // --- CEREBRO: GENERADOR DE IDENTIDAD (CORRELACIÓN ESTRICTA) ---
+  // --- CEREBRO: PROPAGACIÓN VERTICAL (AGREGACIÓN TOTAL) ---
+  // Esta función garantiza que el JEFE (Matriz) siempre sepa lo que ganan sus SOLDADOS.
+  async forceMatrixRecalculation(matrixId: string) {
+      if (!matrixId) return;
+
+      // 1. Obtener métricas financieras de TODOS los Assets de la matriz
+      const { data: assets } = await supabase
+          .from('business_assets')
+          .select('total_score, traffic_score, revenue_score')
+          .eq('primary_matrix_id', matrixId);
+
+      if (!assets) return;
+
+      // 2. Calcular Totales (Manejando NULLs como 0 estrictamente)
+      const totalAssets = assets.length;
+      const totalScore = assets.reduce((sum, a) => sum + (Number(a.total_score) || 0), 0);
+      const totalTraffic = assets.reduce((sum, a) => sum + (Number(a.traffic_score) || 0), 0);
+      const totalRevenue = assets.reduce((sum, a) => sum + (Number(a.revenue_score) || 0), 0);
+
+      // 3. Impactar la Matriz con los nuevos totales
+      await supabase
+          .from('matrix_registry')
+          .update({
+              asset_count: totalAssets,
+              total_score: Math.round(totalScore * 100) / 100,
+              total_traffic_score: Math.round(totalTraffic * 100) / 100,
+              total_revenue_score: Math.round(totalRevenue * 100) / 100,
+              last_audit_at: new Date().toISOString()
+          })
+          .eq('matrix_code', matrixId);
+  },
+
+  // --- CEREBRO: GENERADOR DE IDENTIDAD ---
   async generateNextAssetIdentity(matrixId: string): Promise<{ sku: string; name: string }> {
-    // 1. Obtener datos de la matriz
     const { data: matrix, error: matrixError } = await supabase
       .from('matrix_registry')
       .select('matrix_code, visual_name')
@@ -68,7 +134,6 @@ export const tacticalService = {
 
     if (matrixError || !matrix) throw new Error("MATRIX_NOT_FOUND");
 
-    // 2. Contar assets existentes para calcular secuencia
     const { count, error: countError } = await supabase
       .from('business_assets')
       .select('*', { count: 'exact', head: true })
@@ -76,7 +141,6 @@ export const tacticalService = {
 
     if (countError) throw new Error("CALCULATION_ERROR");
 
-    // 3. Generar Identidad Militar Estándar
     const nextSequence = (count || 0) + 1;
     const paddedSequence = nextSequence.toString().padStart(3, '0');
     
@@ -93,7 +157,8 @@ export const tacticalService = {
      const { data: assets, error } = await supabase
         .from('business_assets')
         .select('*')
-        .limit(50);
+        .limit(50)
+        .order('last_audit_at', { ascending: false });
 
      if (error) throw error;
 
@@ -115,7 +180,7 @@ export const tacticalService = {
          matrix_name: matrixMap[d.primary_matrix_id] || d.primary_matrix_id,
          name: d.sku, 
          tier: d.rarity_tier,
-         score: d.total_score,
+         score: d.total_score || 0,
          monetization_link: d.payhip_link,
          description: d.drive_link,
          updated_at: d.last_audit_at,
@@ -148,7 +213,7 @@ export const tacticalService = {
         matrix_name: matrixMap[d.primary_matrix_id] || d.primary_matrix_id,
         name: d.sku,
         tier: d.rarity_tier,
-        score: d.total_score,
+        score: d.total_score || 0,
         status: AssetStatus.ACTIVE,
     })) as unknown as BusinessAsset[];
   },
@@ -165,10 +230,10 @@ export const tacticalService = {
         matrix_name: matrix?.visual_name || asset.primary_matrix_id,
         name: asset.sku,
         tier: asset.rarity_tier,
-        score: asset.total_score,
+        score: asset.total_score || 0,
         monetization_link: asset.payhip_link,
         drive_link: asset.drive_link,
-        description: asset.drive_link, // Mapeo correcto: usamos drive_link como descripción técnica si description no existe
+        description: asset.drive_link,
         updated_at: asset.last_audit_at,
         status: AssetStatus.ACTIVE,
     } as unknown as BusinessAsset;
@@ -195,7 +260,7 @@ export const tacticalService = {
         ...asset,
         matrix_id: asset.primary_matrix_id,
         primary_matrix_id: asset.primary_matrix_id,
-        score: asset.total_score,
+        score: asset.total_score || 0,
         tier: asset.rarity_tier,
         monetization_link: asset.payhip_link,
         matrix_name: realName
@@ -211,12 +276,13 @@ export const tacticalService = {
           total_score: 0, 
           traffic_score: 0, 
           revenue_score: 0,
-          // Eliminamos 'name' si no existe en tu tabla, pero asumo que usas 'sku' como ID principal.
-          // Si tu tabla no tiene columna 'name', elimina esta línea. 
-          // Según el manifiesto, business_assets tiene 'sku' (PK).
       })
       .select().single();
     if (error) throw error;
+    
+    // Recálculo de Matriz (Inicia en 0 pero cuenta +1 asset)
+    await tacticalService.forceMatrixRecalculation(assetData.matrix_id);
+
     return data;
   },
 
@@ -226,8 +292,13 @@ export const tacticalService = {
   },
 
   deleteAsset: async (sku: string): Promise<void> => {
+    const { data: asset } = await supabase.from('business_assets').select('primary_matrix_id').eq('sku', sku).single();
     const { error } = await supabase.from('business_assets').delete().eq('sku', sku);
     if (error) throw error;
+
+    if (asset?.primary_matrix_id) {
+        await tacticalService.forceMatrixRecalculation(asset.primary_matrix_id);
+    }
   },
 
   // --- 3. GESTIÓN DE NODOS (PINTEREST) Y EL VACÍO ---
@@ -242,7 +313,8 @@ export const tacticalService = {
     return data;
   },
 
-  async getOrphanNodes(limit: number = 100): Promise<PinterestNode[]> {
+  // SCANNER DEL VACÍO
+  async getOrphanNodes(limit: number = 200): Promise<PinterestNode[]> {
     const { data, error } = await supabase
         .from('pinterest_nodes')
         .select(`
@@ -251,7 +323,7 @@ export const tacticalService = {
         `)
         .is('asset_sku', null)
         .limit(limit)
-        .order('created_at', { ascending: false }); 
+        .order('title', { ascending: true });
 
     if (error) throw error;
 
@@ -264,65 +336,111 @@ export const tacticalService = {
       image_url: n.image_url,
       url: `https://pinterest.com/pin/${n.pin_id}`, 
       impressions: n.cached_impressions || 0,
-      clicks: n.cached_pin_clicks || 0,
+      clicks: n.cached_pin_clicks || 0, // Saves
       outbound_clicks: n.cached_outbound_clicks || 0, 
       saves: n.cached_pin_clicks || 0,
       created_at: n.created_at || new Date().toISOString(), 
     })) as PinterestNode[];
   },
 
+  // VINCULAR PINES + AGREGACIÓN VERTICAL
   async assignNodesToAsset(nodeIds: string[], assetSku: string): Promise<boolean> {
+      // 1. Vincular
       const { error } = await supabase
         .from('pinterest_nodes')
         .update({ asset_sku: assetSku })
         .in('pin_id', nodeIds); 
 
       if (error) throw error;
+
+      // 2. Recalcular Asset
+      const { data: allNodes } = await supabase
+          .from('pinterest_nodes')
+          .select('cached_impressions, cached_outbound_clicks, cached_pin_clicks')
+          .eq('asset_sku', assetSku);
+      
+      let matrixIdToUpdate = null;
+
+      if (allNodes && allNodes.length > 0) {
+          let totalImp = 0, totalOut = 0, totalSaves = 0;
+          
+          allNodes.forEach(n => {
+              totalImp += n.cached_impressions || 0;
+              totalOut += n.cached_outbound_clicks || 0;
+              totalSaves += n.cached_pin_clicks || 0;
+          });
+
+          const newScore = calculateTacticalScore(totalImp, totalOut, totalSaves);
+          const newTier = determineRarityTier(newScore);
+
+          const { data: updatedAsset } = await supabase.from('business_assets').update({
+              total_score: newScore,
+              traffic_score: totalOut, 
+              rarity_tier: newTier,
+              last_audit_at: new Date().toISOString()
+          })
+          .eq('sku', assetSku)
+          .select('primary_matrix_id')
+          .single();
+
+          matrixIdToUpdate = updatedAsset?.primary_matrix_id;
+      }
+
+      // 3. Recalcular Matriz (Propagación Vertical)
+      if (matrixIdToUpdate) {
+          await tacticalService.forceMatrixRecalculation(matrixIdToUpdate);
+      }
+
       return true;
   },
 
-  // --- FIELD PROMOTION (CORREGIDO Y SIN ERRORES 400) ---
+  // FIELD PROMOTION + AGREGACIÓN VERTICAL
   async promoteSignalToAsset(
-    pin: { pin_id: string; title: string; image_url: string }, 
+    pin: { pin_id: string; title: string; image_url: string; impressions?: number; outbound_clicks?: number; clicks?: number }, 
     matrixId: string, 
     newSku: string, 
-    // newName: string -> Eliminado porque no lo vamos a insertar en columnas fantasma
   ) {
-    // 1. Crear el Asset respetando el esquema EXACTO de 'business_assets'
-    // Columnas válidas: sku, primary_matrix_id, rarity_tier, total_score, traffic_score, revenue_score
+    // 1. Calcular Score Inicial (Usando datos crudos del Pin)
+    const rawImpressions = pin.impressions || 0;
+    const rawClicks = pin.outbound_clicks || 0;
+    const rawSaves = pin.clicks || 0; // Ojo: en tu mapping 'clicks' son 'saves'
+
+    const initialScore = calculateTacticalScore(rawImpressions, rawClicks, rawSaves);
+    const initialTier = determineRarityTier(initialScore);
+
+    // 2. Crear Asset con datos financieros YA calculados
     const { error: assetError } = await supabase
       .from('business_assets')
       .insert({
         sku: newSku,
         primary_matrix_id: matrixId,
-        rarity_tier: 'DUST',
-        total_score: 0,
-        traffic_score: 0,
+        rarity_tier: initialTier,
+        total_score: initialScore,
+        traffic_score: rawClicks, // El tráfico inicial es el del pin
         revenue_score: 0,
-        // drive_link: Usamos este campo para guardar la referencia del origen si es necesario
-        drive_link: `Auto-generated from Pin: ${pin.pin_id}` 
+        drive_link: `Auto-generated from Pin: ${pin.pin_id}`,
+        last_audit_at: new Date().toISOString()
       });
 
     if (assetError) throw assetError;
 
-    // 2. Asignar el Pin al nuevo Asset
-    const { data, error: nodeError } = await supabase
+    // 3. Vincular Pin
+    const { error: nodeError } = await supabase
       .from('pinterest_nodes')
       .update({ asset_sku: newSku })
-      .eq('pin_id', pin.pin_id)
-      .select();
+      .eq('pin_id', pin.pin_id);
 
     if (nodeError) throw nodeError;
 
-    return data;
+    // 4. Recalcular Matriz (Propagación Vertical)
+    // Esto asegura que la matriz sume inmediatamente el score y tráfico del nuevo asset
+    await tacticalService.forceMatrixRecalculation(matrixId);
+
+    return true;
   },
 
   async incinerateNodes(nodeIds: string[]): Promise<boolean> {
-      const { error } = await supabase
-        .from('pinterest_nodes')
-        .delete()
-        .in('pin_id', nodeIds);
-      
+      const { error } = await supabase.from('pinterest_nodes').delete().in('pin_id', nodeIds);
       if (error) throw error;
       return true;
   },
@@ -397,5 +515,4 @@ export const tacticalService = {
   }
 };
 
-// Mantenemos mockService como alias para compatibilidad
 export const mockService = tacticalService;
