@@ -1,15 +1,74 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { BusinessAsset } from '../../types/database';
+// SERVICIO OFICIAL
 import { tacticalService } from '../../lib/supabase';
 import { Search, Box, Plus, Hexagon, RefreshCw, HardDrive, DollarSign, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 import { AssetDetailView } from './AssetDetailView';
+import RarityBadge from '../ui/RarityBadge'; 
 import AssetCreationWizard from './AssetCreationWizard'; 
 import TechButton from '../ui/TechButton';
-import RarityBadge from '../ui/RarityBadge';
 import { cn } from '../../lib/utils';
 import { useLog } from '../../context/LogContext';
 
-// Configuración de Ordenamiento
+// --- QUICK INJECTOR CELL (Para editar links rápido) ---
+const QuickInjectCell = ({ initialValue, type, onSave }: { initialValue?: string, type: 'drive' | 'payhip', onSave: (val: string) => Promise<void> }) => {
+  const [isEditing, setIsEditing] = useState(false);
+  const [value, setValue] = useState(initialValue || '');
+  const [saving, setSaving] = useState(false);
+  const hasValue = !!initialValue;
+  const Icon = type === 'drive' ? HardDrive : DollarSign;
+  
+  // Colores Tácticos
+  const activeColor = type === 'drive' ? "text-blue-400 bg-blue-900/10 border-blue-900/30" : "text-tech-green bg-tech-green/10 border-tech-green/30";
+  const emptyColor = "text-red-500 bg-red-900/10 border-red-900/30 animate-pulse cursor-pointer hover:bg-red-900/20";
+
+  const handleKeyDown = async (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') { 
+        e.stopPropagation(); 
+        setSaving(true); 
+        await onSave(value); 
+        setSaving(false); 
+        setIsEditing(false); 
+    }
+    if (e.key === 'Escape') { 
+        e.stopPropagation(); 
+        setIsEditing(false); 
+        setValue(initialValue || ''); 
+    }
+  };
+
+  if (isEditing) {
+    return (
+      <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+        <input 
+          autoFocus 
+          autoComplete="off" 
+          type="text" 
+          value={value} 
+          onChange={(e) => setValue(e.target.value)} 
+          onKeyDown={handleKeyDown} 
+          onBlur={() => setIsEditing(false)} 
+          placeholder={type === 'drive' ? "Drive Link..." : "Payhip Link..."}
+          // ESTILO FORZADO: NEGRO/BLANCO
+          className="w-32 h-6 text-[10px] font-mono bg-black border border-tech-green text-white px-1 focus:outline-none"
+        />
+        {saving && <RefreshCw className="w-3 h-3 animate-spin text-tech-green" />}
+      </div>
+    );
+  }
+
+  return (
+    <div 
+        onClick={(e) => { e.stopPropagation(); setIsEditing(true); }} 
+        className={cn("p-1.5 rounded-sm flex items-center justify-center border transition-all cursor-pointer hover:scale-110", hasValue ? activeColor : emptyColor)} 
+        title={hasValue ? "Editar Enlace" : "ALERTA: Falta Enlace"}
+    >
+       <Icon className="w-3.5 h-3.5" />
+    </div>
+  );
+};
+
+// TIPOS DE ORDENAMIENTO
 type SortField = 'sku' | 'matrix' | 'tier' | 'score';
 type SortDirection = 'asc' | 'desc';
 
@@ -23,8 +82,7 @@ export const AssetManager: React.FC = () => {
   
   // Estado de Ordenamiento
   const [sortConfig, setSortConfig] = useState<{ field: SortField; direction: SortDirection }>({
-    field: 'score',
-    direction: 'desc' 
+    field: 'score', direction: 'desc' 
   });
 
   const { addLog } = useLog();
@@ -43,32 +101,48 @@ export const AssetManager: React.FC = () => {
 
   useEffect(() => { fetchAssets(); }, []);
 
-  // [DEFINICIÓN CRÍTICA] Función requerida por el Wizard
   const handleAssetCreated = async () => {
-    await fetchAssets();
-    addLog("NEW ASSET DEPLOYED. INVENTORY SYNCED.", 'success');
+      await fetchAssets();
+      addLog("NEW ASSET DEPLOYED. INVENTORY SYNCED.", 'success');
   };
 
-  // --- PROTOCOLO: REFRESH SYSTEM (Sin RPC roto) ---
+  // PROTOCOLO: THE JUDGE (Manual Refresh)
   const handleSystemRefresh = async () => {
     if (isSyncing) return;
     setIsSyncing(true);
-    
-    // Al no existir el RPC 'invoke_the_judge' en el backend, 
-    // ejecutamos una sincronización táctica de datos.
     try {
       await fetchAssets();
       addLog("SYSTEM SYNCED. DATA INTEGRITY VERIFIED.", 'success');
     } catch (err: any) {
-      console.error("Sync Failure:", err);
       addLog(`SYNC ERROR: ${err.message}`, 'error');
     } finally {
-      // Pequeño delay artificial para feedback táctico
       setTimeout(() => setIsSyncing(false), 800);
     }
   };
 
-  // --- LÓGICA DE ORDENAMIENTO MILITAR ---
+  const handleQuickUpdate = async (sku: string, field: 'drive' | 'payhip', value: string) => {
+    try {
+      // Optimistic Update
+      setAssets(prev => prev.map(a => { 
+          if (a.sku === sku) { 
+              return { 
+                  ...a, 
+                  description: field === 'drive' ? value : a.description, 
+                  monetization_link: field === 'payhip' ? value : a.monetization_link 
+              }; 
+          } 
+          return a; 
+      }));
+      
+      await tacticalService.patchAsset(sku, field, value);
+      addLog(`INFRA INJECTED: ${sku} [${field.toUpperCase()}]`, "success");
+    } catch (e) {
+      addLog("UPDATE FAILED", "error");
+      fetchAssets(); // Revert
+    }
+  };
+
+  // Lógica de Ordenamiento
   const handleSort = (field: SortField) => {
     setSortConfig(current => ({
       field,
@@ -79,20 +153,17 @@ export const AssetManager: React.FC = () => {
   const sortedAssets = useMemo(() => {
     const sorted = [...assets];
     sorted.sort((a, b) => {
-      let valA: any = '';
-      let valB: any = '';
-
+      let valA: any = ''; let valB: any = '';
       switch (sortConfig.field) {
         case 'sku': valA = a.sku; valB = b.sku; break;
         case 'matrix': valA = a.matrix_name || ''; valB = b.matrix_name || ''; break;
         case 'score': valA = a.score || 0; valB = b.score || 0; break;
-        case 'tier':
+        case 'tier': 
           const tierPower = { 'DUST': 1, 'COMMON': 2, 'UNCOMMON': 3, 'RARE': 4, 'LEGENDARY': 5 };
-          valA = tierPower[a.tier as keyof typeof tierPower] || 0;
-          valB = tierPower[b.tier as keyof typeof tierPower] || 0;
+          valA = tierPower[a.tier as keyof typeof tierPower] || 0; 
+          valB = tierPower[b.tier as keyof typeof tierPower] || 0; 
           break;
       }
-
       if (valA < valB) return sortConfig.direction === 'asc' ? -1 : 1;
       if (valA > valB) return sortConfig.direction === 'asc' ? 1 : -1;
       return 0;
@@ -102,16 +173,12 @@ export const AssetManager: React.FC = () => {
 
   const filteredAssets = sortedAssets.filter(a => 
     (a.sku?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
-    (a.matrix_name?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
-    (a.matrix_id?.toLowerCase() || '').includes(searchTerm.toLowerCase())
+    (a.matrix_name?.toLowerCase() || '').includes(searchTerm.toLowerCase())
   );
 
-  // --- RENDER HELPERS ---
   const SortIcon = ({ field }: { field: SortField }) => {
     if (sortConfig.field !== field) return <ArrowUpDown className="w-3 h-3 opacity-20 ml-1" />;
-    return sortConfig.direction === 'asc' 
-      ? <ArrowUp className="w-3 h-3 text-tech-green ml-1" /> 
-      : <ArrowDown className="w-3 h-3 text-tech-green ml-1" />;
+    return sortConfig.direction === 'asc' ? <ArrowUp className="w-3 h-3 text-tech-green ml-1" /> : <ArrowDown className="w-3 h-3 text-tech-green ml-1" />;
   };
 
   const getScoreColor = (score: number) => {
@@ -134,25 +201,18 @@ export const AssetManager: React.FC = () => {
             <Box className="w-6 h-6 text-tech-green" /> Inventario de Activos
           </h2>
           <p className="text-xs text-gray-500 font-mono mt-1">
-             {assets.length} Unidades Desplegadas • Gestión de Ciclo de Vida
+             {assets.length} Unidades Desplegadas • Modo Edición Rápida Activo
           </p>
         </div>
         <div className="flex gap-2 items-center">
-            {/* BOTÓN SOLO ICONO (THE JUDGE / REFRESH) */}
+            {/* Botón Refresh (THE JUDGE) */}
             <button 
               onClick={handleSystemRefresh} 
               disabled={isSyncing || loading}
-              className={cn(
-                "p-2 border transition-all duration-300 rounded-sm",
-                isSyncing 
-                  ? "bg-tech-green/10 border-tech-green text-tech-green cursor-wait" 
-                  : "bg-black border-gray-800 text-gray-500 hover:text-white hover:border-gray-600"
-              )}
-              title="THE JUDGE: Refresh System Data"
+              className={cn("p-2 border transition-all duration-300 rounded-sm", isSyncing ? "bg-tech-green/10 border-tech-green text-tech-green" : "bg-black border-gray-800 text-gray-500 hover:text-white")}
             >
                 <RefreshCw className={cn("w-5 h-5", isSyncing && "animate-spin")} />
             </button>
-
             <TechButton variant="primary" label="NEW SILO PROTOCOL" icon={Plus} onClick={() => setShowWizard(true)} />
         </div>
       </div>
@@ -173,21 +233,13 @@ export const AssetManager: React.FC = () => {
 
       {/* TABLA DE DATOS */}
       <div className="flex-1 overflow-hidden border border-gray-800 bg-void-gray/5 flex flex-col">
-        {/* Encabezados Sticky */}
+        {/* Encabezados */}
         <div className="grid grid-cols-12 gap-4 p-4 bg-black border-b border-gray-800 text-[10px] font-mono text-gray-500 uppercase tracking-wider sticky top-0 z-10">
-            <div className="col-span-3 flex items-center cursor-pointer hover:text-white" onClick={() => handleSort('sku')}>
-              Identificador (SKU) <SortIcon field="sku" />
-            </div>
-            <div className="col-span-3 flex items-center cursor-pointer hover:text-white" onClick={() => handleSort('matrix')}>
-              Matriz de Mando <SortIcon field="matrix" />
-            </div>
-            <div className="col-span-2 flex items-center cursor-pointer hover:text-white" onClick={() => handleSort('tier')}>
-              Clasificación <SortIcon field="tier" />
-            </div>
-            <div className="col-span-1 text-right flex items-center justify-end cursor-pointer hover:text-white" onClick={() => handleSort('score')}>
-              Score <SortIcon field="score" />
-            </div>
-            <div className="col-span-3 text-right">Integridad Operativa</div>
+            <div className="col-span-3 cursor-pointer hover:text-white flex items-center" onClick={() => handleSort('sku')}>Identificador <SortIcon field="sku"/></div>
+            <div className="col-span-3 cursor-pointer hover:text-white flex items-center" onClick={() => handleSort('matrix')}>Matriz <SortIcon field="matrix"/></div>
+            <div className="col-span-2 cursor-pointer hover:text-white flex items-center" onClick={() => handleSort('tier')}>Clase <SortIcon field="tier"/></div>
+            <div className="col-span-1 text-right cursor-pointer hover:text-white flex items-center justify-end" onClick={() => handleSort('score')}>Score <SortIcon field="score"/></div>
+            <div className="col-span-3 text-right">Inyección Rápida</div>
         </div>
 
         {/* Filas */}
@@ -195,9 +247,9 @@ export const AssetManager: React.FC = () => {
             {loading && assets.length === 0 ? (
               <div className="p-8 text-center text-tech-green font-mono animate-pulse">SINCRONIZANDO RED NEURAL...</div>
             ) : filteredAssets.map((asset) => {
-              const score = asset.score || 0;
-              const hasDrive = !!asset.description; 
-              const hasPayhip = !!asset.monetization_link;
+              // Mapeo defensivo
+              const driveVal = asset.description || asset.drive_link; 
+              const payhipVal = asset.monetization_link;
 
               return (
               <div 
@@ -205,39 +257,52 @@ export const AssetManager: React.FC = () => {
                 onClick={() => setSelectedAsset(asset)}
                 className="grid grid-cols-12 gap-4 p-4 border-b border-gray-800/50 hover:bg-void-gray/30 cursor-pointer group transition-all items-center text-xs sm:text-sm"
               >
-                {/* 1. SKU */}
+                {/* SKU */}
                 <div className="col-span-3 font-mono text-gray-300 group-hover:text-tech-green font-bold flex items-center gap-2 truncate">
                    <Box className="w-3 h-3 opacity-50 shrink-0" /> <span className="truncate">{asset.sku}</span>
                 </div>
-                {/* 2. MATRIZ */}
+
+                {/* MATRIZ */}
                 <div className="col-span-3 font-mono text-gray-400 flex items-center gap-2 truncate">
                     <Hexagon className="w-3 h-3 text-gray-600 group-hover:text-tech-green shrink-0" />
                     <div className="flex flex-col leading-none truncate">
-                        <span className="text-gray-300 font-medium truncate group-hover:text-white">{asset.matrix_name || 'SIN NOMBRE'}</span>
-                        <span className="text-[9px] text-gray-600 group-hover:text-tech-green/70">{asset.matrix_id}</span>
+                        <span className="text-tech-green/90 font-bold truncate">{asset.matrix_name || 'SIN NOMBRE'}</span>
+                        <span className="text-[9px] text-gray-600">{asset.matrix_id}</span>
                     </div>
                 </div>
-                {/* 3. CLASIFICACIÓN */}
+
+                {/* TIER */}
                 <div className="col-span-2">
                   <RarityBadge tier={asset.tier || 'DUST'} className="scale-90 origin-left" />
                 </div>
-                {/* 4. SCORE */}
-                <div className={`col-span-1 text-right font-mono text-sm ${getScoreColor(score)}`}>
-                  {score.toFixed(0)}
+
+                {/* SCORE */}
+                <div className={`col-span-1 text-right font-mono text-sm ${getScoreColor(asset.score || 0)}`}>
+                  {(asset.score || 0).toFixed(0)}
                 </div>
-                {/* 5. INTEGRIDAD */}
+
+                {/* COLUMNA DE ACCIÓN: QUICK INJECT */}
                 <div className="col-span-3 flex items-center justify-end gap-3 pl-4 border-l border-gray-800/30">
-                   <div className={cn("p-1.5 rounded-sm flex items-center justify-center", hasDrive ? "bg-blue-900/10 text-blue-400 border border-blue-900/30" : "bg-red-900/10 text-red-500 border border-red-900/30 animate-pulse")} title="Archivos Fuente">
-                      <HardDrive className="w-3.5 h-3.5" />
-                   </div>
-                   <div className={cn("p-1.5 rounded-sm flex items-center justify-center", hasPayhip ? "bg-emerald-900/10 text-emerald-400 border border-emerald-900/30" : "bg-red-900/10 text-red-500 border border-red-900/30 animate-pulse")} title="Enlace Venta">
-                      <DollarSign className="w-3.5 h-3.5" />
-                   </div>
+                   
+                   {/* Drive Injector */}
+                   <QuickInjectCell 
+                      type="drive" 
+                      initialValue={driveVal} 
+                      onSave={(val) => handleQuickUpdate(asset.sku, 'drive', val)} 
+                   />
+
+                   {/* Payhip Injector */}
+                   <QuickInjectCell 
+                      type="payhip" 
+                      initialValue={payhipVal} 
+                      onSave={(val) => handleQuickUpdate(asset.sku, 'payhip', val)} 
+                   />
                 </div>
               </div>
             )})}
         </div>
       </div>
+
       <AssetCreationWizard isOpen={showWizard} onClose={() => setShowWizard(false)} onSuccess={handleAssetCreated} />
     </div>
   );
