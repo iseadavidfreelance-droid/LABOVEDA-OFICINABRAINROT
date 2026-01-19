@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { RefreshCw, Search, AlertTriangle, PlusCircle, Database, LayoutGrid, Fingerprint, Type, Save, Grid, Link as LinkIcon, CheckCircle2 } from 'lucide-react';
+import React, { useEffect, useState, useRef } from 'react';
+import { RefreshCw, Search, AlertTriangle, PlusCircle, Database, LayoutGrid, Fingerprint, Type, Save, Grid, Link as LinkIcon, CheckCircle2, ChevronDown, Image as ImageIcon } from 'lucide-react';
 import { PinterestNode, Matrix, BusinessAsset } from '../../types/database';
 import { tacticalService } from '../../lib/supabase';
 import TechButton from '../ui/TechButton';
@@ -31,6 +31,11 @@ export default function VoidTerminal() {
   const [newMatrixCode, setNewMatrixCode] = useState('');
   const [newMatrixName, setNewMatrixName] = useState('');
   const [loadingIdentity, setLoadingIdentity] = useState(false);
+  
+  // -- NUEVO ESTADO PARA EL SELECTOR HÍBRIDO DE MATRIZ --
+  const [matrixSearchQuery, setMatrixSearchQuery] = useState('');
+  const [showMatrixDropdown, setShowMatrixDropdown] = useState(false);
+  const matrixDropdownRef = useRef<HTMLDivElement>(null);
   
   // SUB-ESTADO: VINCULACIÓN (LINK EXISTING)
   const [assetSearchQuery, setAssetSearchQuery] = useState('');
@@ -74,6 +79,17 @@ export default function VoidTerminal() {
     return () => clearTimeout(debounce);
   }, [assetSearchQuery]);
 
+  // Click Outside para cerrar el dropdown de matriz
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (matrixDropdownRef.current && !matrixDropdownRef.current.contains(event.target as Node)) {
+        setShowMatrixDropdown(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
 
   // --- HANDLERS DE ACCIÓN ---
 
@@ -82,6 +98,7 @@ export default function VoidTerminal() {
       setActiveNode(node);
       setMode('PROMOTE_NEW');
       setPromoMatrixId('');
+      setMatrixSearchQuery(''); // Reset search
       setPromoSku('PENDING...');
       setPromoName(node.title || 'New Asset');
       setShowMatrixCreator(false);
@@ -134,8 +151,11 @@ export default function VoidTerminal() {
       setShowMatrixCreator(false);
   };
 
-  const handleMatrixSelect = async (matrixId: string) => {
+  const handleMatrixSelect = async (matrixId: string, matrixName?: string) => {
     setPromoMatrixId(matrixId);
+    if(matrixName) setMatrixSearchQuery(matrixName); // Actualizar input visual
+    setShowMatrixDropdown(false); // Cerrar dropdown
+    
     if(!matrixId) return;
 
     setLoadingIdentity(true);
@@ -150,11 +170,19 @@ export default function VoidTerminal() {
     }
   };
 
-  // Filtro local visual
+  // Filtro local visual del Grid Principal
   const filteredOrphans = orphans.filter(n => 
     (n.title?.toLowerCase().includes(localSearch.toLowerCase()) || 
     n.pin_id.includes(localSearch))
   );
+
+  // Filtro de Matrices (Para el Custom Select)
+  const filteredMatrices = matrices
+    .filter(m => 
+        m.name.toLowerCase().includes(matrixSearchQuery.toLowerCase()) || 
+        m.matrix_code.toLowerCase().includes(matrixSearchQuery.toLowerCase())
+    )
+    .sort((a, b) => a.name.localeCompare(b.name));
 
   return (
     <div className="h-full flex flex-col p-6 relative animate-in fade-in">
@@ -279,7 +307,7 @@ export default function VoidTerminal() {
                     {/* Panel Derecho: Formularios Lógicos */}
                     <div className="flex-1 p-6 overflow-y-auto custom-scrollbar bg-[#0c0c0c]">
                         
-                        {/* ---------------- MODO: VINCULAR A EXISTENTE ---------------- */}
+                        {/* ---------------- MODO: VINCULAR A EXISTENTE (GRID TÁCTICO) ---------------- */}
                         {mode === 'LINK_EXISTING' && (
                             <div className="space-y-6">
                                 <div className="space-y-2">
@@ -297,56 +325,104 @@ export default function VoidTerminal() {
                                     </div>
                                 </div>
 
-                                {/* Resultados de Búsqueda */}
-                                <div className="space-y-2 h-[300px] overflow-y-auto custom-scrollbar border border-void-border/50 bg-black/20 p-2">
+                                {/* Resultados de Búsqueda: GRID DE CUADROS */}
+                                <div className="h-[300px] overflow-y-auto custom-scrollbar border border-void-border/50 bg-black/20 p-3">
                                     {assetSearchResults.length === 0 ? (
                                         <div className="h-full flex items-center justify-center text-gray-600 text-xs font-mono">
                                             {assetSearchQuery.length < 2 ? 'ESPERANDO INPUT...' : 'SIN RESULTADOS'}
                                         </div>
                                     ) : (
-                                        assetSearchResults.map(asset => (
-                                            <div 
-                                                key={asset.sku}
-                                                onClick={() => setSelectedAssetSku(asset.sku)}
-                                                className={cn(
-                                                    "p-3 border cursor-pointer flex justify-between items-center transition-all",
-                                                    selectedAssetSku === asset.sku 
-                                                        ? "bg-blue-900/20 border-blue-500" 
-                                                        : "border-gray-800 hover:border-gray-600 hover:bg-gray-900"
-                                                )}
-                                            >
-                                                <div>
-                                                    <div className="text-white font-bold text-sm">{asset.name}</div>
-                                                    <div className="text-gray-500 text-[10px] font-mono">{asset.sku} | {asset.matrix_id}</div>
+                                        <div className="grid grid-cols-3 gap-3">
+                                            {assetSearchResults.map(asset => (
+                                                <div 
+                                                    key={asset.sku}
+                                                    onClick={() => setSelectedAssetSku(asset.sku)}
+                                                    className={cn(
+                                                        "relative aspect-square border cursor-pointer group overflow-hidden transition-all flex flex-col",
+                                                        selectedAssetSku === asset.sku 
+                                                            ? "border-blue-500 ring-1 ring-blue-500/50" 
+                                                            : "border-gray-800 hover:border-gray-500"
+                                                    )}
+                                                >
+                                                    {/* IMAGEN DE FONDO (Traída del Nodo) */}
+                                                    <div className="absolute inset-0 bg-gray-900">
+                                                        {asset.main_image_url ? (
+                                                            <img src={asset.main_image_url} className="w-full h-full object-cover opacity-60 group-hover:opacity-100 transition-opacity" />
+                                                        ) : (
+                                                            <div className="w-full h-full flex items-center justify-center text-gray-700">
+                                                                <ImageIcon className="w-8 h-8 opacity-20" />
+                                                            </div>
+                                                        )}
+                                                    </div>
+
+                                                    {/* Check de Selección */}
+                                                    {selectedAssetSku === asset.sku && (
+                                                        <div className="absolute top-2 right-2 bg-blue-600 text-white rounded-full p-0.5 z-20">
+                                                            <CheckCircle2 className="w-4 h-4" />
+                                                        </div>
+                                                    )}
+
+                                                    {/* Overlay de Información */}
+                                                    <div className="absolute inset-x-0 bottom-0 bg-black/80 backdrop-blur-sm p-2 border-t border-white/10">
+                                                        <div className="text-[10px] font-bold text-white truncate leading-tight">{asset.name}</div>
+                                                        <div className="text-[9px] text-blue-400 font-mono truncate">{asset.matrix_id}</div>
+                                                    </div>
                                                 </div>
-                                                {selectedAssetSku === asset.sku && <CheckCircle2 className="w-5 h-5 text-blue-500" />}
-                                            </div>
-                                        ))
+                                            ))}
+                                        </div>
                                     )}
                                 </div>
                             </div>
                         )}
 
-                        {/* ---------------- MODO: CREAR NUEVO (FIELD PROMOTION) ---------------- */}
+                        {/* ---------------- MODO: CREAR NUEVO (SELECTOR HÍBRIDO) ---------------- */}
                         {mode === 'PROMOTE_NEW' && (
                             <div className="space-y-6">
                                 {/* Selector de Matriz / Creador */}
                                 {!showMatrixCreator ? (
-                                    <div className="space-y-2">
+                                    <div className="space-y-2" ref={matrixDropdownRef}>
                                         <div className="flex justify-between">
                                             <label className="text-xs font-mono text-void-red">ASIGNAR A MATRIZ</label>
                                             <button onClick={() => setShowMatrixCreator(true)} className="text-[10px] text-gray-400 hover:text-white underline">
                                                 + NUEVA MATRIZ
                                             </button>
                                         </div>
-                                        <select 
-                                            value={promoMatrixId}
-                                            onChange={(e) => handleMatrixSelect(e.target.value)}
-                                            className="w-full bg-void-gray/10 border border-void-border text-white p-3 text-sm font-mono focus:border-void-red focus:outline-none"
-                                        >
-                                            <option value="">-- SELECCIONAR --</option>
-                                            {matrices.map(m => <option key={m.matrix_code} value={m.matrix_code}>{m.name} [{m.matrix_code}]</option>)}
-                                        </select>
+                                        
+                                        {/* CUSTOM SEARCHABLE SELECT */}
+                                        <div className="relative">
+                                            <input 
+                                                type="text"
+                                                value={matrixSearchQuery}
+                                                onChange={(e) => {
+                                                    setMatrixSearchQuery(e.target.value);
+                                                    setShowMatrixDropdown(true);
+                                                    setPromoMatrixId(''); // Reset si el usuario edita
+                                                }}
+                                                onFocus={() => setShowMatrixDropdown(true)}
+                                                placeholder="BUSCAR MATRIZ O SELECCIONAR..."
+                                                className="w-full bg-void-gray/10 border border-void-border text-white p-3 pr-10 text-sm font-mono focus:border-void-red focus:outline-none"
+                                            />
+                                            <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 pointer-events-none" />
+
+                                            {showMatrixDropdown && (
+                                                <div className="absolute top-full left-0 right-0 z-50 mt-1 max-h-48 overflow-y-auto custom-scrollbar bg-[#0a0a0a] border border-void-border shadow-2xl">
+                                                    {filteredMatrices.length === 0 ? (
+                                                        <div className="p-3 text-xs text-gray-500 font-mono text-center">NO DATA</div>
+                                                    ) : (
+                                                        filteredMatrices.map(m => (
+                                                            <button 
+                                                                key={m.matrix_code}
+                                                                onClick={() => handleMatrixSelect(m.matrix_code, m.name)}
+                                                                className="w-full text-left p-2 hover:bg-void-red/10 border-b border-gray-800 last:border-0 flex justify-between items-center group"
+                                                            >
+                                                                <span className="text-sm font-mono text-gray-300 group-hover:text-white truncate">{m.name}</span>
+                                                                <span className="text-[10px] text-gray-600 group-hover:text-void-red font-mono">{m.matrix_code}</span>
+                                                            </button>
+                                                        ))
+                                                    )}
+                                                </div>
+                                            )}
+                                        </div>
                                     </div>
                                 ) : (
                                     <div className="bg-void-red/10 p-4 border border-void-red/30 space-y-3">
@@ -362,7 +438,7 @@ export default function VoidTerminal() {
                                                     await tacticalService.createMatrix({ code: newMatrixCode, name: newMatrixName, type: 'PRIMARY' });
                                                     const m = await tacticalService.getMatrices(); setMatrices(m);
                                                     setShowMatrixCreator(false);
-                                                    handleMatrixSelect(newMatrixCode);
+                                                    handleMatrixSelect(newMatrixCode, newMatrixName);
                                                 }} 
                                                 className="flex-1 bg-void-red text-black font-bold text-xs py-2"
                                             >CREAR</button>

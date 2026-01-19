@@ -190,9 +190,11 @@ export const tacticalService = {
 
   searchAssets: async (query: string): Promise<BusinessAsset[]> => {
     if (!query) return [];
+    
+    // CORRECCIÓN TÁCTICA: Extraer imagen desde los nodos (Nivel 3)
     const { data: assets, error } = await supabase
         .from('business_assets')
-        .select('*')
+        .select('*, pinterest_nodes(image_url)') // JOIN Implícito
         .ilike('sku', `%${query}%`)
         .limit(20);
 
@@ -215,6 +217,8 @@ export const tacticalService = {
         tier: d.rarity_tier,
         score: d.total_score || 0,
         status: AssetStatus.ACTIVE,
+        // INYECCIÓN DE IMAGEN: Usamos la del primer nodo encontrado o null
+        main_image_url: d.pinterest_nodes && d.pinterest_nodes.length > 0 ? d.pinterest_nodes[0].image_url : null
     })) as unknown as BusinessAsset[];
   },
 
