@@ -13,17 +13,22 @@ if (!SUPABASE_URL || !SUPABASE_KEY) {
 export const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 /**
- * --- MOTOR MATEMÁTICO TÁCTICO (CLIENT-SIDE JUDGE) ---
- * Pesos ajustados para dar valor real inmediato.
+ * --- PROTOCOLO MERCENARIO (V2.0) ---
+ * Filosofía: "Ventas o Muerte".
+ * Se prioriza el tráfico saliente (Outbound) sobre la vanidad (Saves).
  */
-const SCORING_WEIGHTS = {
-    IMPRESSION: 0.01,   // Visibilidad
-    CLICK: 1.5,         // Tráfico (Intención)
-    SAVE: 2.0,          // Deseo (Viralidad potencial)
-    REVENUE_DOLLAR: 10.0 // Valor del dinero real
+export const SCORING_WEIGHTS = {
+    IMPRESSION: 0.001,   // Ruido de fondo. Casi irrelevante.
+    CLICK: 5.0,          // EL REY. Intención de compra clara.
+    SAVE: 0.5,           // Vanidad. Interés pasivo. (Castigado)
+    REVENUE_DOLLAR: 20.0 // La verdad absoluta.
 };
 
-const calculateTacticalScore = (impressions: number, clicks: number, saves: number, revenue: number = 0): number => {
+/**
+ * CÁLCULO DE SCORE
+ * Aplica el Protocolo Mercenario.
+ */
+export const calculateTacticalScore = (impressions: number, clicks: number, saves: number, revenue: number = 0): number => {
     const score = (impressions * SCORING_WEIGHTS.IMPRESSION) + 
                   (clicks * SCORING_WEIGHTS.CLICK) + 
                   (saves * SCORING_WEIGHTS.SAVE) +
@@ -31,18 +36,78 @@ const calculateTacticalScore = (impressions: number, clicks: number, saves: numb
     return Math.round(score * 100) / 100;
 };
 
-const determineRarityTier = (score: number): string => {
-    if (score >= 1000) return 'LEGENDARY';
-    if (score >= 500) return 'RARE';
-    if (score >= 200) return 'UNCOMMON';
-    if (score >= 50) return 'COMMON';
+/**
+ * CURVA DE DIFICULTAD LOGARÍTMICA
+ * Se acabaron los "Legendarios de Papel".
+ * Nueva Escala:
+ * - DUST: < 100
+ * - COMMON: 100 - 499
+ * - UNCOMMON: 500 - 1499
+ * - RARE: 1500 - 4999
+ * - LEGENDARY: >= 5000 (Solo élite real)
+ */
+export const determineRarityTier = (score: number): 'DUST' | 'COMMON' | 'UNCOMMON' | 'RARE' | 'LEGENDARY' => {
+    if (score >= 5000) return 'LEGENDARY';
+    if (score >= 1500) return 'RARE';
+    if (score >= 500) return 'UNCOMMON';
+    if (score >= 100) return 'COMMON';
     return 'DUST';
 };
 
 /**
- * SERVICIO TÁCTICO UNIFICADO (0 INCERTIDUMBRE)
+ * SERVICIO TÁCTICO UNIFICADO
  */
 export const tacticalService = {
+
+  // --- 0. AUDITORÍA GLOBAL (THE PURGE) ---
+  // Ejecuta esto para recalcular TODOS los activos existentes con la nueva fórmula.
+  async executeGlobalPurge(): Promise<string> {
+      // 1. Traer todos los Assets
+      const { data: assets, error } = await supabase.from('business_assets').select('sku, primary_matrix_id');
+      if (error || !assets) throw new Error("FALLO AL LEER ACTIVOS");
+
+      let updatedCount = 0;
+
+      // 2. Iterar (Esto debería hacerse en backend SQL para producción masiva, pero sirve para <1000 items)
+      for (const asset of assets) {
+          // Obtener métricas reales de sus nodos
+          const { data: nodes } = await supabase
+              .from('pinterest_nodes')
+              .select('cached_impressions, cached_outbound_clicks, cached_pin_clicks')
+              .eq('asset_sku', asset.sku);
+
+          if (nodes) {
+              let imp = 0, clk = 0, sav = 0;
+              nodes.forEach(n => {
+                  imp += n.cached_impressions || 0;
+                  clk += n.cached_outbound_clicks || 0;
+                  sav += n.cached_pin_clicks || 0; // saves
+              });
+
+              // Recalcular con Protocolo Mercenario
+              const newScore = calculateTacticalScore(imp, clk, sav, 0); // Asumimos revenue 0 para recalculo base
+              const newTier = determineRarityTier(newScore);
+
+              // Impactar DB
+              await supabase.from('business_assets').update({
+                  total_score: newScore,
+                  traffic_score: clk,
+                  rarity_tier: newTier,
+                  last_audit_at: new Date().toISOString()
+              }).eq('sku', asset.sku);
+
+              updatedCount++;
+          }
+      }
+
+      // 3. Recalcular todas las Matrices afectadas
+      const matrixIds = [...new Set(assets.map(a => a.primary_matrix_id))];
+      for (const mId of matrixIds) {
+          await this.forceMatrixRecalculation(mId);
+      }
+
+      return `PURGA COMPLETA. ${updatedCount} ACTIVOS RECALIBRADOS BAJO PROTOCOLO MERCENARIO.`;
+  },
 
   // --- 1. GESTIÓN DE MATRICES (NIVEL 1) ---
   
@@ -93,11 +158,9 @@ export const tacticalService = {
   },
 
   // --- CEREBRO: PROPAGACIÓN VERTICAL (AGREGACIÓN TOTAL) ---
-  // Esta función garantiza que el JEFE (Matriz) siempre sepa lo que ganan sus SOLDADOS.
   async forceMatrixRecalculation(matrixId: string) {
       if (!matrixId) return;
 
-      // 1. Obtener métricas financieras de TODOS los Assets de la matriz
       const { data: assets } = await supabase
           .from('business_assets')
           .select('total_score, traffic_score, revenue_score')
@@ -105,13 +168,11 @@ export const tacticalService = {
 
       if (!assets) return;
 
-      // 2. Calcular Totales (Manejando NULLs como 0 estrictamente)
       const totalAssets = assets.length;
       const totalScore = assets.reduce((sum, a) => sum + (Number(a.total_score) || 0), 0);
       const totalTraffic = assets.reduce((sum, a) => sum + (Number(a.traffic_score) || 0), 0);
       const totalRevenue = assets.reduce((sum, a) => sum + (Number(a.revenue_score) || 0), 0);
 
-      // 3. Impactar la Matriz con los nuevos totales
       await supabase
           .from('matrix_registry')
           .update({
@@ -191,10 +252,9 @@ export const tacticalService = {
   searchAssets: async (query: string): Promise<BusinessAsset[]> => {
     if (!query) return [];
     
-    // CORRECCIÓN TÁCTICA: Extraer imagen desde los nodos (Nivel 3)
     const { data: assets, error } = await supabase
         .from('business_assets')
-        .select('*, pinterest_nodes(image_url)') // JOIN Implícito
+        .select('*, pinterest_nodes(image_url)') 
         .ilike('sku', `%${query}%`)
         .limit(20);
 
@@ -217,7 +277,6 @@ export const tacticalService = {
         tier: d.rarity_tier,
         score: d.total_score || 0,
         status: AssetStatus.ACTIVE,
-        // INYECCIÓN DE IMAGEN: Usamos la del primer nodo encontrado o null
         main_image_url: d.pinterest_nodes && d.pinterest_nodes.length > 0 ? d.pinterest_nodes[0].image_url : null
     })) as unknown as BusinessAsset[];
   },
@@ -284,9 +343,7 @@ export const tacticalService = {
       .select().single();
     if (error) throw error;
     
-    // Recálculo de Matriz (Inicia en 0 pero cuenta +1 asset)
     await tacticalService.forceMatrixRecalculation(assetData.matrix_id);
-
     return data;
   },
 
@@ -317,7 +374,6 @@ export const tacticalService = {
     return data;
   },
 
-  // SCANNER DEL VACÍO
   async getOrphanNodes(limit: number = 200): Promise<PinterestNode[]> {
     const { data, error } = await supabase
         .from('pinterest_nodes')
@@ -347,7 +403,6 @@ export const tacticalService = {
     })) as PinterestNode[];
   },
 
-  // VINCULAR PINES + AGREGACIÓN VERTICAL
   async assignNodesToAsset(nodeIds: string[], assetSku: string): Promise<boolean> {
       // 1. Vincular
       const { error } = await supabase
@@ -357,7 +412,7 @@ export const tacticalService = {
 
       if (error) throw error;
 
-      // 2. Recalcular Asset
+      // 2. Recalcular Asset con Protocolo Mercenario
       const { data: allNodes } = await supabase
           .from('pinterest_nodes')
           .select('cached_impressions, cached_outbound_clicks, cached_pin_clicks')
@@ -374,6 +429,7 @@ export const tacticalService = {
               totalSaves += n.cached_pin_clicks || 0;
           });
 
+          // NEW SCORING
           const newScore = calculateTacticalScore(totalImp, totalOut, totalSaves);
           const newTier = determineRarityTier(newScore);
 
@@ -390,7 +446,6 @@ export const tacticalService = {
           matrixIdToUpdate = updatedAsset?.primary_matrix_id;
       }
 
-      // 3. Recalcular Matriz (Propagación Vertical)
       if (matrixIdToUpdate) {
           await tacticalService.forceMatrixRecalculation(matrixIdToUpdate);
       }
@@ -398,21 +453,19 @@ export const tacticalService = {
       return true;
   },
 
-  // FIELD PROMOTION + AGREGACIÓN VERTICAL
   async promoteSignalToAsset(
     pin: { pin_id: string; title: string; image_url: string; impressions?: number; outbound_clicks?: number; clicks?: number }, 
     matrixId: string, 
     newSku: string, 
   ) {
-    // 1. Calcular Score Inicial (Usando datos crudos del Pin)
     const rawImpressions = pin.impressions || 0;
-    const rawClicks = pin.outbound_clicks || 0;
-    const rawSaves = pin.clicks || 0; // Ojo: en tu mapping 'clicks' son 'saves'
+    const rawClicks = pin.outbound_clicks || 0; // Tráfico real
+    const rawSaves = pin.clicks || 0; // Saves (viene como clicks en tu mapping interno)
 
+    // PROTOCOLO MERCENARIO APLICADO AL NACER
     const initialScore = calculateTacticalScore(rawImpressions, rawClicks, rawSaves);
     const initialTier = determineRarityTier(initialScore);
 
-    // 2. Crear Asset con datos financieros YA calculados
     const { error: assetError } = await supabase
       .from('business_assets')
       .insert({
@@ -420,7 +473,7 @@ export const tacticalService = {
         primary_matrix_id: matrixId,
         rarity_tier: initialTier,
         total_score: initialScore,
-        traffic_score: rawClicks, // El tráfico inicial es el del pin
+        traffic_score: rawClicks, 
         revenue_score: 0,
         drive_link: `Auto-generated from Pin: ${pin.pin_id}`,
         last_audit_at: new Date().toISOString()
@@ -428,7 +481,6 @@ export const tacticalService = {
 
     if (assetError) throw assetError;
 
-    // 3. Vincular Pin
     const { error: nodeError } = await supabase
       .from('pinterest_nodes')
       .update({ asset_sku: newSku })
@@ -436,8 +488,6 @@ export const tacticalService = {
 
     if (nodeError) throw nodeError;
 
-    // 4. Recalcular Matriz (Propagación Vertical)
-    // Esto asegura que la matriz sume inmediatamente el score y tráfico del nuevo asset
     await tacticalService.forceMatrixRecalculation(matrixId);
 
     return true;
