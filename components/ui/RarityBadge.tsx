@@ -2,18 +2,23 @@ import React from "react";
 import { RarityTier } from "../../types/database";
 import { cn } from "../../lib/utils";
 import { motion } from "framer-motion";
+import { determineRarityTier } from "../../lib/supabase"; // Importamos la lógica central
 
 interface RarityBadgeProps {
-  tier: RarityTier;
+  tier?: RarityTier | string; // Permitimos string para flexibilidad
+  score?: number; // Opcional: calcular al vuelo
   className?: string;
 }
 
-const RarityBadge: React.FC<RarityBadgeProps> = ({ tier, className }) => {
+const RarityBadge: React.FC<RarityBadgeProps> = ({ tier, score, className }) => {
   // Casting motion.div to any to avoid TypeScript errors with motion props
   const MotionDiv = motion.div as any;
 
-  const getStyles = (tier: RarityTier) => {
-    switch (tier) {
+  // Calculamos el Tier real si nos dan score, o usamos el tier pasado
+  const effectiveTier = tier || (score !== undefined ? determineRarityTier(score) : "DUST");
+
+  const getStyles = (t: string) => {
+    switch (t) {
       case "DUST":
         return "text-rank-dust border-rank-dust/30 bg-transparent opacity-60";
       case "COMMON":
@@ -37,12 +42,12 @@ const RarityBadge: React.FC<RarityBadgeProps> = ({ tier, className }) => {
         "inline-flex items-center justify-center px-3 py-1",
         "font-sans text-xs font-bold tracking-widest uppercase",
         "border backdrop-blur-sm select-none",
-        getStyles(tier),
+        getStyles(effectiveTier as string),
         className
       )}
     >
-      {tier}
-      {tier === "LEGENDARY" && (
+      {effectiveTier}
+      {effectiveTier === "LEGENDARY" && (
         <span className="ml-2 w-1.5 h-1.5 rounded-full bg-rank-legendary animate-ping" />
       )}
     </MotionDiv>

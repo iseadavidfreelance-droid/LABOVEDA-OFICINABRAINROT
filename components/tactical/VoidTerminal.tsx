@@ -54,11 +54,12 @@ export default function VoidTerminal() {
   const [selectedAssetSku, setSelectedAssetSku] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
 
-  // 1. SCANNER
+  // 1. SCANNER (ALCANCE MÁXIMO)
   const scanVoid = async () => {
     setIsScanning(true);
     try {
-      const data = await tacticalService.getOrphanNodes(200); 
+      // SOLICITUD DE 5000 NODOS PARA MOSTRAR MAXIMO POSIBLE
+      const data = await tacticalService.getOrphanNodes(5000); 
       setOrphans(data || []);
       const matrixData = await tacticalService.getMatrices();
       setMatrices(matrixData || []);
@@ -128,11 +129,11 @@ export default function VoidTerminal() {
       return null;
   };
 
-  // --- CÁLCULO PREDICTIVO ENRIQUECIDO (USANDO PESOS MERCENARIOS) ---
+  // --- CÁLCULO PREDICTIVO ENRIQUECIDO (USANDO PESOS IMPORTADOS) ---
   const calculateProjection = (node: PinterestNode | null) => {
       if (!node) return { score: 0, tier: 'DUST', ctr: 0, viral: 0, engagement: 0 };
       
-      // 1. Score Base (Usando SCORING_WEIGHTS importados para consistencia 0 Incertidumbre)
+      // 1. Score Base (Usando SCORING_WEIGHTS importados para consistencia)
       const score = (node.impressions * SCORING_WEIGHTS.IMPRESSION) + 
                     (node.outbound_clicks * SCORING_WEIGHTS.CLICK) + 
                     (node.saves * SCORING_WEIGHTS.SAVE); 

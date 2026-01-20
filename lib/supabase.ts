@@ -16,6 +16,7 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
  * --- PROTOCOLO MERCENARIO (V2.0) ---
  * Filosofía: "Ventas o Muerte".
  * Se prioriza el tráfico saliente (Outbound) sobre la vanidad (Saves).
+ * EXPORTADO PARA USO GLOBAL.
  */
 export const SCORING_WEIGHTS = {
     IMPRESSION: 0.001,   // Ruido de fondo. Casi irrelevante.
@@ -25,8 +26,7 @@ export const SCORING_WEIGHTS = {
 };
 
 /**
- * CÁLCULO DE SCORE
- * Aplica el Protocolo Mercenario.
+ * CÁLCULO DE SCORE CENTRALIZADO
  */
 export const calculateTacticalScore = (impressions: number, clicks: number, saves: number, revenue: number = 0): number => {
     const score = (impressions * SCORING_WEIGHTS.IMPRESSION) + 
@@ -37,7 +37,7 @@ export const calculateTacticalScore = (impressions: number, clicks: number, save
 };
 
 /**
- * CURVA DE DIFICULTAD LOGARÍTMICA
+ * CURVA DE DIFICULTAD LOGARÍTMICA (EXPORTADA)
  * Se acabaron los "Legendarios de Papel".
  * Nueva Escala:
  * - DUST: < 100
@@ -55,7 +55,7 @@ export const determineRarityTier = (score: number): 'DUST' | 'COMMON' | 'UNCOMMO
 };
 
 /**
- * SERVICIO TÁCTICO UNIFICADO
+ * SERVICIO TÁCTICO UNIFICADO (0 INCERTIDUMBRE)
  */
 export const tacticalService = {
 
@@ -68,7 +68,7 @@ export const tacticalService = {
 
       let updatedCount = 0;
 
-      // 2. Iterar (Esto debería hacerse en backend SQL para producción masiva, pero sirve para <1000 items)
+      // 2. Iterar y Recalcular
       for (const asset of assets) {
           // Obtener métricas reales de sus nodos
           const { data: nodes } = await supabase
@@ -84,8 +84,8 @@ export const tacticalService = {
                   sav += n.cached_pin_clicks || 0; // saves
               });
 
-              // Recalcular con Protocolo Mercenario
-              const newScore = calculateTacticalScore(imp, clk, sav, 0); // Asumimos revenue 0 para recalculo base
+              // Recalcular con Protocolo Mercenario (Usando la función exportada)
+              const newScore = calculateTacticalScore(imp, clk, sav, 0); 
               const newTier = determineRarityTier(newScore);
 
               // Impactar DB
@@ -157,7 +157,7 @@ export const tacticalService = {
     if (error) throw error;
   },
 
-  // --- CEREBRO: PROPAGACIÓN VERTICAL (AGREGACIÓN TOTAL) ---
+  // --- CEREBRO: PROPAGACIÓN VERTICAL ---
   async forceMatrixRecalculation(matrixId: string) {
       if (!matrixId) return;
 
@@ -212,13 +212,13 @@ export const tacticalService = {
     return { sku: generatedSku, name: generatedName };
   },
 
-  // --- 2. GESTIÓN DE ACTIVOS (NIVEL 2) ---
+  // --- 2. GESTIÓN DE ACTIVOS ---
 
   getTacticalSilos: async (): Promise<BusinessAsset[]> => {
      const { data: assets, error } = await supabase
         .from('business_assets')
         .select('*')
-        .limit(50)
+        // LIMITE ELIMINADO PARA MOSTRAR 100% DEL INVENTARIO
         .order('last_audit_at', { ascending: false });
 
      if (error) throw error;
@@ -256,7 +256,7 @@ export const tacticalService = {
         .from('business_assets')
         .select('*, pinterest_nodes(image_url)') 
         .ilike('sku', `%${query}%`)
-        .limit(20);
+        .limit(1000); // AUMENTADO A 1000 PARA COBERTURA MÁXIMA
 
     if (error) throw error;
 
@@ -362,7 +362,7 @@ export const tacticalService = {
     }
   },
 
-  // --- 3. GESTIÓN DE NODOS (PINTEREST) Y EL VACÍO ---
+  // --- 3. GESTIÓN DE NODOS Y EL VACÍO ---
 
   getNodesByAsset: async (sku: string) => {
     const { data, error } = await supabase
@@ -374,7 +374,7 @@ export const tacticalService = {
     return data;
   },
 
-  async getOrphanNodes(limit: number = 200): Promise<PinterestNode[]> {
+  async getOrphanNodes(limit: number = 5000): Promise<PinterestNode[]> {
     const { data, error } = await supabase
         .from('pinterest_nodes')
         .select(`
@@ -382,7 +382,7 @@ export const tacticalService = {
           cached_impressions, cached_pin_clicks, cached_outbound_clicks, created_at
         `)
         .is('asset_sku', null)
-        .limit(limit)
+        .limit(limit) // Usamos el límite alto
         .order('title', { ascending: true });
 
     if (error) throw error;
@@ -396,7 +396,7 @@ export const tacticalService = {
       image_url: n.image_url,
       url: `https://pinterest.com/pin/${n.pin_id}`, 
       impressions: n.cached_impressions || 0,
-      clicks: n.cached_pin_clicks || 0, // Saves
+      clicks: n.cached_pin_clicks || 0, 
       outbound_clicks: n.cached_outbound_clicks || 0, 
       saves: n.cached_pin_clicks || 0,
       created_at: n.created_at || new Date().toISOString(), 
@@ -412,7 +412,7 @@ export const tacticalService = {
 
       if (error) throw error;
 
-      // 2. Recalcular Asset con Protocolo Mercenario
+      // 2. Recalcular Asset con Protocolo Mercenario (Usando calculateTacticalScore centralizado)
       const { data: allNodes } = await supabase
           .from('pinterest_nodes')
           .select('cached_impressions, cached_outbound_clicks, cached_pin_clicks')
@@ -459,8 +459,8 @@ export const tacticalService = {
     newSku: string, 
   ) {
     const rawImpressions = pin.impressions || 0;
-    const rawClicks = pin.outbound_clicks || 0; // Tráfico real
-    const rawSaves = pin.clicks || 0; // Saves (viene como clicks en tu mapping interno)
+    const rawClicks = pin.outbound_clicks || 0; 
+    const rawSaves = pin.clicks || 0; 
 
     // PROTOCOLO MERCENARIO APLICADO AL NACER
     const initialScore = calculateTacticalScore(rawImpressions, rawClicks, rawSaves);
@@ -499,7 +499,7 @@ export const tacticalService = {
       return true;
   },
 
-  // --- 4. ANALÍTICA Y TABLEROS DE MANDO ---
+  // --- 4. ANALÍTICA ---
 
   async getViewCounts() {
     try {
